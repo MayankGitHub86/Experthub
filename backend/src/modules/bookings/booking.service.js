@@ -206,12 +206,25 @@ class BookingService {
     // Execute in transaction
     try {
       return await this._withTransaction(async (session) => {
-        // Calculate pricing
+        // Calculate pricing BEFORE creating booking
         const service = hold.serviceId;
         const baseAmount = service.pricing.amount;
         const platformFee = baseAmount * 0.15; // 15% platform fee
         const taxAmount = 0; // TODO: Calculate tax
-        const totalAmount = baseAmount + platformFee + taxAmount;
+        const discountAmount = 0;
+        const totalAmount = baseAmount + platformFee + taxAmount - discountAmount;
+        
+        // Validate all amounts are finite numbers
+        if (!isFinite(baseAmount) || !isFinite(platformFee) || !isFinite(totalAmount)) {
+          throw new AppError('Invalid pricing calculation', 400);
+        }
+        
+        // Generate booking number upfront (outside pre-save)
+        const count = await Booking.countDocuments({}, { session });
+        const bookingNumber = `BK${Date.now()}-${String(count + 1).padStart(6, '0')}`;
+        
+        // Calculate end time
+        const endTime = new Date(hold.startTime.getTime() + service.duration * 60000);
         
         // Create booking within transaction
         const bookingDocs = await Booking.create([{
@@ -220,18 +233,19 @@ class BookingService {
           serviceId: hold.serviceId._id,
           scheduledAt: hold.startTime,
           duration: service.duration,
-          endTime: hold.endTime,
+          endTime: endTime,
           timezone: 'UTC',
           status: 'payment_pending',
           pricing: {
             baseAmount,
             platformFee,
             taxAmount,
-            discountAmount: 0,
+            discountAmount,
             currency: service.pricing.currency || 'USD',
           },
           totalAmount,
           clientNotes,
+          bookingNumber,
         }], { session });
         
         const booking = bookingDocs[0];
@@ -376,7 +390,7 @@ class BookingService {
     }
     
     // Check if can be cancelled
-    if (!['pending', 'confirmed', 'paid'].includes(booking.status)) {
+    if (!['pending', 'confirmed', 'paid', 'payment_pending'].includes(booking.status)) {
       throw new AppError('Booking cannot be cancelled', 400);
     }
     

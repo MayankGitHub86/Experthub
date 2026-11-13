@@ -26,6 +26,7 @@ router.get('/:id', authenticate, bookingController.getBookingById);
 
 // Cancel booking
 router.patch('/:id/cancel', authenticate, bookingController.cancelBooking);
+router.delete('/:id', authenticate, bookingController.cancelBooking);
 
 // Reschedule booking
 router.patch('/:id/reschedule', authenticate, bookingController.rescheduleBooking);

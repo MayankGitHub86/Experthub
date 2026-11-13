@@ -331,6 +331,11 @@ bookingSchema.virtual('canCancel').get(function() {
 
 // Pre-save middleware
 bookingSchema.pre('save', async function(next) {
+  // Handle case where next might not be a function (e.g., during transactions)
+  if (typeof next !== 'function') {
+    return;
+  }
+  
   // Calculate end time
   if (this.isModified('scheduledAt') || this.isModified('duration')) {
     this.endTime = new Date(this.scheduledAt.getTime() + this.duration * 60000);
@@ -355,6 +360,11 @@ bookingSchema.pre('save', async function(next) {
 
 // Pre-save: Add status to history
 bookingSchema.pre('save', function(next) {
+  // Handle case where next might not be a function
+  if (typeof next !== 'function') {
+    return;
+  }
+  
   if (this.isModified('status')) {
     this.statusHistory.push({
       status: this.status,

@@ -39,15 +39,7 @@ describe('Phase 2 Booking Engine - Complete Transactional Test Suite', () => {
       console.log(`Connected to test database: ${mongoose.connection.name}`);
     }
     
-    // Ensure indexes are created for test database
-    try {
-      await ReservationUnit.collection.createIndexes();
-      console.log('Indexes ensured in test database');
-    } catch (err) {
-      console.log('Index creation info:', err.message);
-    }
-    
-    // Clean up all test data
+    // Clean up all test data first
     await User.deleteMany({ email: /phase2-test/ });
     await Expert.deleteMany({ headline: /Phase 2 Test Expert/ });
     await Service.deleteMany({ description: /phase2-test/ });
@@ -517,21 +509,25 @@ describe('Phase 2 Booking Engine - Complete Transactional Test Suite', () => {
 
   describe('7. Indexes Verification', () => {
     it('should verify atomic_slot_reservation index exists', async () => {
-      const indexes = await ReservationUnit.collection.getIndexes();
-      const atomicIndex = Object.values(indexes).find(
-        idx => idx.name === 'atomic_slot_reservation'
-      );
+      // Get full index specs which include options like unique
+      const indexSpecs = await ReservationUnit.collection.listIndexes().toArray();
+      
+      // Find the atomic_slot_reservation index
+      const atomicIndex = indexSpecs.find(idx => idx.name === 'atomic_slot_reservation');
       
       expect(atomicIndex).toBeDefined();
       expect(atomicIndex.unique).toBe(true);
       expect(atomicIndex.partialFilterExpression).toBeDefined();
+      expect(atomicIndex.partialFilterExpression.status.$in).toContain('held');
+      expect(atomicIndex.partialFilterExpression.status.$in).toContain('confirmed');
     }, 10000);
 
     it('should verify TTL index exists', async () => {
-      const indexes = await ReservationUnit.collection.getIndexes();
-      const ttlIndex = Object.values(indexes).find(
-        idx => idx.name === 'ttl_cleanup'
-      );
+      // Get full index specs
+      const indexSpecs = await ReservationUnit.collection.listIndexes().toArray();
+      
+      // Find the TTL index
+      const ttlIndex = indexSpecs.find(idx => idx.name === 'ttl_cleanup');
       
       expect(ttlIndex).toBeDefined();
       expect(ttlIndex.expireAfterSeconds).toBe(0);

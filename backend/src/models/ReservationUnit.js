@@ -77,7 +77,7 @@ const reservationUnitSchema = new mongoose.Schema({
   expiresAt: {
     type: Date,
     required: true,
-    index: true,
+    // Index is defined separately as TTL index below
   },
   
   // Timestamps
@@ -108,7 +108,8 @@ reservationUnitSchema.index({ holdId: 1 });
 reservationUnitSchema.index({ bookingId: 1 });
 reservationUnitSchema.index({ status: 1, expiresAt: 1 });
 
-// TTL index for automatic cleanup
+// TTL index for automatic cleanup (expires documents at the specified timestamp)
+// Important: expireAfterSeconds: 0 means expire exactly at the timestamp, not after a delay
 reservationUnitSchema.index(
   { expiresAt: 1 },
   {
