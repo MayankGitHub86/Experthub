@@ -187,7 +187,7 @@ class BookingService {
     // Get hold first (outside transaction to validate permissions)
     const hold = await BookingHold.findById(holdId)
       .populate('expertId', 'userId')
-      .populate('serviceId', 'title price duration');
+      .populate('serviceId', 'title duration pricing');
     
     if (!hold) {
       throw new AppError('Booking hold not found', 404);

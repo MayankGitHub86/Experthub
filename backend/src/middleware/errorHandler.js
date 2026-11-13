@@ -86,6 +86,18 @@ export const errorHandler = (err, req, res, next) => {
   const code = err.code || 'INTERNAL_ERROR';
   const message = err.isOperational ? err.message : 'Something went wrong';
   
+  // Format based on endpoint (booking endpoints use success: false, others use status: error)
+  const isBookingEndpoint = req.path && req.path.includes('/bookings');
+  
+  if (isBookingEndpoint) {
+    return res.status(statusCode).json({
+      success: false,
+      message,
+      code,
+      ...(config.isDevelopment && { stack: error.stack }),
+    });
+  }
+  
   res.status(statusCode).json({
     status: 'error',
     code,

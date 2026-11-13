@@ -22,8 +22,29 @@ describe('Phase 2 Booking Engine - Complete Transactional Test Suite', () => {
   };
 
   beforeAll(async () => {
-    if (mongoose.connection.readyState === 0) {
-      await mongoose.connect('mongodb://localhost:27017/experthub');
+    // Tests run against isolated test database
+    // Connect if not already connected, or if connected to wrong database
+    const currentDb = mongoose.connection.name;
+    const targetDb = 'experthub_test';
+    
+    if (mongoose.connection.readyState === 0 || currentDb !== targetDb) {
+      // Disconnect if connected to wrong database
+      if (mongoose.connection.readyState !== 0) {
+        await mongoose.disconnect();
+      }
+      
+      // Connect to test database
+      const testDbUri = 'mongodb://localhost:27017/experthub_test?replicaSet=rs0&retryWrites=true&w=majority';
+      await mongoose.connect(testDbUri);
+      console.log(`Connected to test database: ${mongoose.connection.name}`);
+    }
+    
+    // Ensure indexes are created for test database
+    try {
+      await ReservationUnit.collection.createIndexes();
+      console.log('Indexes ensured in test database');
+    } catch (err) {
+      console.log('Index creation info:', err.message);
     }
     
     // Clean up all test data

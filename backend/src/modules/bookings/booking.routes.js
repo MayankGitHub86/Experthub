@@ -12,6 +12,7 @@ const router = express.Router();
 router.post('/holds', authenticate, bookingController.createHold);
 
 // Confirm booking
+router.post('/confirm', authenticate, bookingController.confirmBooking);
 router.post('/', authenticate, bookingController.confirmBooking);
 
 // Get my bookings

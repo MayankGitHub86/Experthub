@@ -13,7 +13,9 @@ import { logger } from '../utils/logger.js';
  */
 
 const connectDB = async () => {
-  const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/experthub';
+  // Use separate test database for test environment
+  const dbName = process.env.NODE_ENV === 'test' ? 'experthub_test' : 'experthub';
+  const MONGODB_URI = process.env.MONGODB_URI || `mongodb://localhost:27017/${dbName}?replicaSet=rs0&retryWrites=true&w=majority`;
   
   const options = {
     // Connection pool size
@@ -25,10 +27,10 @@ const connectDB = async () => {
     socketTimeoutMS: 45000,
     
     // Behavior
-    autoIndex: process.env.NODE_ENV !== 'production', // Build indexes in dev, not prod
+    autoIndex: process.env.NODE_ENV !== 'production',
     
     // Naming
-    dbName: 'experthub',
+    dbName: dbName,
   };
 
   try {

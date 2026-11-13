@@ -43,13 +43,20 @@ services:
     restart: unless-stopped
     ports:
       - "27017:27017"
+    command: mongod --replSet rs0 --bind_ip_all
     environment:
-      MONGO_INITDB_ROOT_USERNAME: root
-      MONGO_INITDB_ROOT_PASSWORD: password
+      # Authentication disabled for single-node replica set in development
+      # For production, configure keyFile for inter-node authentication
+      MONGO_INITDB_DATABASE: experthub
     volumes:
       - mongo_data:/data/db
     networks:
       - experthub_net
+    healthcheck:
+      test: mongosh --eval "rs.initiate().ok || rs.status().ok"
+      interval: 5s
+      timeout: 10s
+      retries: 5
 
   # Node.js + Express + Socket.io Microservice
   chat-service:
@@ -62,13 +69,15 @@ services:
       - "3001:3001"
     environment:
       PORT: 3001
-      MONGODB_URI: mongodb://root:password@mongodb:27017/experthub?authSource=admin
+      MONGODB_URI: mongodb://mongodb:27017/experthub?replicaSet=rs0&retryWrites=true&w=majority
       WORDPRESS_URL: http://wordpress:80
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
     depends_on:
-      - mongodb
-      - wordpress
+      mongodb:
+        condition: service_healthy
+      wordpress:
+        condition: service_started
     networks:
       - experthub_net
 
