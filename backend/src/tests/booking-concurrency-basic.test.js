@@ -11,16 +11,26 @@ describe('Booking Concurrency - Critical Atomic Reservation Test', () => {
   let testService;
 
   beforeAll(async () => {
-    if (mongoose.connection.readyState === 0) {
-      await mongoose.connect('mongodb://localhost:27017/experthub');
+    // Connect to test database
+    const currentDb = mongoose.connection.name;
+    const targetDb = 'experthub_test';
+    
+    if (mongoose.connection.readyState === 0 || currentDb !== targetDb) {
+      if (mongoose.connection.readyState !== 0) {
+        await mongoose.disconnect();
+      }
+      
+      const testDbUri = 'mongodb://localhost:27017/experthub_test?replicaSet=rs0&retryWrites=true&w=majority';
+      await mongoose.connect(testDbUri);
     }
+    
     await User.deleteMany({ email: /concurrency-basic-test/ });
     await Expert.deleteMany({ headline: /Atomic Reservation Tester/ });
     await Service.deleteMany({ description: /atomic reservation test/ });
     await ReservationUnit.deleteMany({});
     await BookingHold.deleteMany({});
     await Booking.deleteMany({});
-  });
+  }, 30000);
 
   afterAll(async () => {
     await User.deleteMany({ email: /concurrency-basic-test/ });
@@ -30,7 +40,7 @@ describe('Booking Concurrency - Critical Atomic Reservation Test', () => {
     await BookingHold.deleteMany({});
     await Booking.deleteMany({});
     await mongoose.connection.close();
-  });
+  }, 30000);
 
   beforeEach(async () => {
     testUser = await User.create({

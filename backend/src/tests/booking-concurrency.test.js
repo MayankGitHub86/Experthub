@@ -12,8 +12,16 @@ describe('Booking Concurrency and Atomic Reservation Tests', () => {
 
   beforeAll(async () => {
     // Connect to test database
-    if (mongoose.connection.readyState === 0) {
-      await mongoose.connect('mongodb://localhost:27017/experthub');
+    const currentDb = mongoose.connection.name;
+    const targetDb = 'experthub_test';
+    
+    if (mongoose.connection.readyState === 0 || currentDb !== targetDb) {
+      if (mongoose.connection.readyState !== 0) {
+        await mongoose.disconnect();
+      }
+      
+      const testDbUri = 'mongodb://localhost:27017/experthub_test?replicaSet=rs0&retryWrites=true&w=majority';
+      await mongoose.connect(testDbUri);
     }
 
     // Clean up test data
@@ -23,7 +31,7 @@ describe('Booking Concurrency and Atomic Reservation Tests', () => {
     await ReservationUnit.deleteMany({});
     await BookingHold.deleteMany({});
     await Booking.deleteMany({});
-  });
+  }, 30000);
 
   afterAll(async () => {
     // Clean up
@@ -36,7 +44,7 @@ describe('Booking Concurrency and Atomic Reservation Tests', () => {
     
     // Close mongoose connection
     await mongoose.connection.close();
-  });
+  }, 30000);
 
   beforeEach(async () => {
     // Create test user directly in database
@@ -455,7 +463,7 @@ describe('Booking Concurrency and Atomic Reservation Tests', () => {
 
       // Confirm hold
       const confirmRes = await request(app)
-        .post(`/api/v1/bookings`)
+        .post(`/api/v1/bookings/confirm`)
         .set('Authorization', `Bearer ${authToken}`)
         .send({ holdId });
 
@@ -497,7 +505,7 @@ describe('Booking Concurrency and Atomic Reservation Tests', () => {
         .send(booking1);
 
       await request(app)
-        .post(`/api/bookings/confirm`)
+        .post(`/api/v1/bookings/confirm`)
         .set('Authorization', `Bearer ${authToken}`)
         .send({ holdId: holdRes.body.data._id });
 
@@ -588,7 +596,7 @@ describe('Booking Concurrency and Atomic Reservation Tests', () => {
         .send(booking1);
 
       const confirmRes = await request(app)
-        .post(`/api/bookings/confirm`)
+        .post(`/api/v1/bookings/confirm`)
         .set('Authorization', `Bearer ${authToken}`)
         .send({ holdId: holdRes.body.data._id });
 
@@ -596,7 +604,7 @@ describe('Booking Concurrency and Atomic Reservation Tests', () => {
 
       // Cancel booking
       const cancelRes = await request(app)
-        .post(`/api/v1/bookings/${bookingId}/cancel`)
+        .delete(`/api/v1/bookings/${bookingId}`)
         .set('Authorization', `Bearer ${authToken}`);
 
       expect(cancelRes.body.success).toBe(true);
@@ -672,7 +680,7 @@ describe('Booking Concurrency and Atomic Reservation Tests', () => {
       const responses = await Promise.all(
         requests.map((data) =>
           request(app)
-            .post('/api/v1/bookings/hold')
+            .post('/api/v1/bookings/holds')
             .set('Authorization', `Bearer ${authToken}`)
             .send(data)
             .then((res) => ({ success: res.body.success, startTime: data.startTime }))
