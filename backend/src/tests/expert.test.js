@@ -42,8 +42,12 @@ async function makeRequest(endpoint, method = 'GET', data = null, token = null) 
 async function setup() {
   console.log('\n🔧 Setting up test environment...\n');
   
-  // Connect to MongoDB
-  await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/experthub');
+  // Connect to MongoDB test database
+  const testDbUri = process.env.NODE_ENV === 'test' 
+    ? 'mongodb://localhost:27017/experthub_test?replicaSet=rs0&retryWrites=true&w=majority'
+    : 'mongodb://localhost:27017/experthub';
+  
+  await mongoose.connect(testDbUri);
   
   // Create test user
   const testUser = await User.create({

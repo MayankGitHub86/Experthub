@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import dotenv from 'dotenv';
+import mongoose from 'mongoose';
 import { User, Expert, Service } from '../models/index.js';
 
 dotenv.config();
@@ -19,7 +20,11 @@ async function makeRequest(endpoint, method = 'GET', data = null, token = null) 
 
 async function setup() {
   console.log('\n🔧 Setting up...\n');
-  await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/experthub');
+  const testDbUri = process.env.NODE_ENV === 'test' 
+    ? 'mongodb://localhost:27017/experthub_test?replicaSet=rs0&retryWrites=true&w=majority'
+    : 'mongodb://localhost:27017/experthub';
+  
+  await mongoose.connect(testDbUri);
   
   const user = await User.create({
     email: `test-service-${Date.now()}@example.com`,
