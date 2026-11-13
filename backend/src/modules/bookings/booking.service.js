@@ -20,16 +20,37 @@ import mongoose from 'mongoose';
 class BookingService {
   /**
    * Helper: Wrap operations with transaction if supported
+   * 
+   * IMPORTANT: Requires MongoDB replica set or sharded cluster
+   * Standalone MongoDB will throw an error and transactions will not be available
    */
   async _withTransaction(fn) {
     let session;
     let transactionSupported = false;
     
     try {
-      // Try to start a transaction
       session = await mongoose.startSession();
-      session.startTransaction();
-      transactionSupported = true;
+      
+      // Check if transactions are actually supported
+      try {
+        session.startTransaction();
+        transactionSupported = true;
+      } catch (txnError) {
+        // Transactions not supported (standalone MongoDB)
+        // Provide clear error message
+        if (txnError.message && txnError.message.includes('transactions are not allowed')) {
+          logger.error('MongoDB transactions not supported on this deployment', {
+            error: txnError.message,
+            solution: 'Configure MongoDB replica set with: mongod --replSet rs0'
+          });
+          throw new AppError(
+            'MongoDB replica set required for booking operations. ' +
+            'Configure MongoDB with replication enabled.',
+            500
+          );
+        }
+        throw txnError;
+      }
       
       const result = await fn(session);
       await session.commitTransaction();
@@ -380,8 +401,8 @@ class BookingService {
         { session }
       );
       
-      // Release reservation units
-      await ReservationUnit.releaseBookingReservation(bookingId);
+      // Release reservation units (must pass session for transaction consistency)
+      await ReservationUnit.releaseBookingReservation(bookingId, session);
       
       return { booking, refundInfo };
     });
@@ -477,7 +498,7 @@ class BookingService {
       );
       
       // Confirm new hold and units
-      await hold.constructor.findByIdAndUpdate(
+      await BookingHold.findByIdAndUpdate(
         newHold._id,
         { status: 'confirmed', bookingId },
         { session }

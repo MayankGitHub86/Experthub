@@ -240,7 +240,7 @@ reservationUnitSchema.statics.createReservation = async function(
 reservationUnitSchema.statics.confirmReservation = async function(holdId, bookingId, session = null) {
   const options = session ? { session } : {};
   
-  // Verify hold still exists and hasn't expired
+  // Verify hold still exists and hasn't expired (read within same transaction context if available)
   const hold = await mongoose.model('BookingHold').findById(holdId, {}, options);
   
   if (!hold) {

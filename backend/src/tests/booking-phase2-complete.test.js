@@ -73,9 +73,9 @@ describe('Phase 2 Booking Engine - Complete Transactional Test Suite', () => {
     testExpert = await Expert.create({
       userId: expertUser._id,
       headline: 'Phase 2 Test Expert',
-      bio: 'Expert for Phase 2 transactional booking tests',
+      bio: 'Expert for Phase 2 transactional booking tests. This is a detailed bio that provides comprehensive information about this expert specialist. We include substantial detail to meet the minimum character requirement.',
       skills: ['testing'],
-      category: 'Testing',
+      category: 'Technology & Engineering',
       hourlyRate: 100,
       languages: ['English'],
       verificationStatus: 'approved',
@@ -90,8 +90,8 @@ describe('Phase 2 Booking Engine - Complete Transactional Test Suite', () => {
     testService = await Service.create({
       expertId: testExpert._id,
       title: 'Phase 2 Test Service',
-      description: 'phase2-test service',
-      category: 'testing',
+      description: 'phase2-test service for transactional booking verification',
+      category: 'technology-consulting',
       deliveryMethod: 'video_call',
       duration: 60,
       pricing: {

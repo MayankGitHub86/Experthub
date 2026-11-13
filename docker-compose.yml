@@ -1,0 +1,82 @@
+version: '3.8'
+
+services:
+  # MySQL for WordPress & WooCommerce Core
+  db:
+    image: mysql:8.0
+    container_name: experthub_mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: experthub
+      MYSQL_USER: experthub_user
+      MYSQL_PASSWORD: experthub_password
+      MYSQL_ROOT_PASSWORD: root_password
+    volumes:
+      - db_data:/var/lib/mysql
+    networks:
+      - experthub_net
+
+  # WordPress + WooCommerce Headless CMS
+  wordpress:
+    image: wordpress:6.5-apache
+    container_name: experthub_wordpress
+    restart: unless-stopped
+    depends_on:
+      - db
+    ports:
+      - "8000:80"
+    environment:
+      WORDPRESS_DB_HOST: db:3306
+      WORDPRESS_DB_NAME: experthub
+      WORDPRESS_DB_USER: experthub_user
+      WORDPRESS_DB_PASSWORD: experthub_password
+    volumes:
+      - wp_data:/var/www/html
+      - ./wp-content:/var/www/html/wp-content
+    networks:
+      - experthub_net
+
+  # MongoDB for Real-time Socket.io Chat Microservice
+  mongodb:
+    image: mongo:6.0
+    container_name: experthub_mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: password
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - experthub_net
+
+  # Node.js + Express + Socket.io Microservice
+  chat-service:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: experthub_chat_service
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      PORT: 3001
+      MONGODB_URI: mongodb://root:password@mongodb:27017/experthub?authSource=admin
+      WORDPRESS_URL: http://wordpress:80
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
+    depends_on:
+      - mongodb
+      - wordpress
+    networks:
+      - experthub_net
+
+volumes:
+  db_data:
+  wp_data:
+  mongo_data:
+
+networks:
+  experthub_net:
+    driver: bridge
