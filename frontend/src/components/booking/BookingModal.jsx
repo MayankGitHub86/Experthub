@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   X, 
   ChevronLeft, 
@@ -13,363 +13,454 @@ import {
   CreditCard,
   Calendar as CalendarIcon,
   ShieldCheck,
-  ArrowRight
+  ArrowRight,
+  AlertCircle,
+  Loader
 } from 'lucide-react';
 import ExpertHubLogo from '../common/ExpertHubLogo';
+import bookingsAPI from '../../api/bookings.js';
 
-export default function BookingModal({ expert, initialPackage, onClose, onProceedToPayment }) {
-  const [step, setStep] = useState(1); // 1: Select Date, 2: Select Time, 3: Confirm
-  const [selectedDay, setSelectedDay] = useState(18);
-  const [selectedMonth, setSelectedMonth] = useState('June 2025');
-  const [selectedTimeSlot, setSelectedTimeSlot] = useState('10:00 AM');
-  const [clientName, setClientName] = useState('Alex Rivera');
-  const [clientEmail, setClientEmail] = useState('alex.r@ventureflow.io');
-  const [notes, setNotes] = useState('');
+export default function BookingModal({ expert, onClose, onBookingSuccess }) {
+  const [step, setStep] = useState(1); // 1: Select Service, 2: Select Date/Time, 3: Confirm, 4: Success
+  const [services, setServices] = useState([]);
+  const [selectedService, setSelectedService] = useState(null);
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [availableSlots, setAvailableSlots] = useState([]);
+  const [selectedSlot, setSelectedSlot] = useState(null);
+  const [clientNotes, setClientNotes] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [createdHold, setCreatedHold] = useState(null);
+  const [holdCountdown, setHoldCountdown] = useState(null);
 
   if (!expert) return null;
 
-  // Selected service details
-  const serviceName = initialPackage?.title || initialPackage?.name || "Product Strategy Consultation";
-  const servicePrice = initialPackage?.price || 199;
-  const serviceDuration = initialPackage?.duration || "60 minutes";
+  // Load expert's services on mount
+  useEffect(() => {
+    const loadServices = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const data = await bookingsAPI.getExpertServices(expert._id);
+        setServices(Array.isArray(data) ? data : []);
+      } catch (err) {
+        console.error('Error loading services:', err);
+        setError('Failed to load services');
+      } finally {
+        setLoading(false);
+      }
+    };
 
-  // Days for calendar June 2025
-  const calendarDays = [
-    { day: 1, inMonth: true },
-    { day: 2, inMonth: true },
-    { day: 3, inMonth: true },
-    { day: 4, inMonth: true },
-    { day: 5, inMonth: true },
-    { day: 6, inMonth: true },
-    { day: 7, inMonth: true },
-    { day: 8, inMonth: true },
-    { day: 9, inMonth: true },
-    { day: 10, inMonth: true },
-    { day: 11, inMonth: true },
-    { day: 12, inMonth: true },
-    { day: 13, inMonth: true },
-    { day: 14, inMonth: true },
-    { day: 15, inMonth: true },
-    { day: 16, inMonth: true },
-    { day: 17, inMonth: true },
-    { day: 18, inMonth: true, active: true },
-    { day: 19, inMonth: true },
-    { day: 20, inMonth: true },
-    { day: 21, inMonth: true },
-    { day: 22, inMonth: true },
-    { day: 23, inMonth: true },
-    { day: 24, inMonth: true },
-    { day: 25, inMonth: true },
-    { day: 26, inMonth: true },
-    { day: 27, inMonth: true },
-    { day: 28, inMonth: true },
-    { day: 29, inMonth: true },
-    { day: 30, inMonth: true },
-    { day: 1, inMonth: false },
-    { day: 2, inMonth: false },
-    { day: 3, inMonth: false },
-    { day: 4, inMonth: false },
-    { day: 5, inMonth: false },
-  ];
+    loadServices();
+  }, [expert._id]);
 
-  const timeSlots = [
-    "09:00 AM",
-    "10:00 AM",
-    "11:30 AM",
-    "01:00 PM",
-    "02:30 PM",
-    "04:00 PM"
-  ];
+  // Load availability when date or service changes
+  useEffect(() => {
+    if (!selectedService || !selectedDate) return;
+
+    const loadAvailability = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const startDate = selectedDate.toISOString();
+        const endDate = new Date(selectedDate.getTime() + 1 * 24 * 60 * 60 * 1000).toISOString(); // Next day
+        const data = await bookingsAPI.getExpertAvailability(expert._id, selectedService._id, startDate, endDate);
+        setAvailableSlots(Array.isArray(data) ? data : []);
+        setSelectedSlot(null); // Reset slot selection
+      } catch (err) {
+        console.error('Error loading availability:', err);
+        setError('Failed to load availability');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadAvailability();
+  }, [selectedService, selectedDate, expert._id]);
+
+  // Handle hold countdown
+  useEffect(() => {
+    if (!createdHold) return;
+
+    const expiresAt = new Date(createdHold.expiresAt);
+    const interval = setInterval(() => {
+      const now = new Date();
+      const remaining = expiresAt - now;
+      
+      if (remaining <= 0) {
+        setHoldCountdown('Expired');
+        clearInterval(interval);
+      } else {
+        const minutes = Math.floor(remaining / 60000);
+        const seconds = Math.floor((remaining % 60000) / 1000);
+        setHoldCountdown(`${minutes}:${seconds.toString().padStart(2, '0')}`);
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [createdHold]);
+
+  const handleCreateHold = async () => {
+    if (!selectedService || !selectedSlot) {
+      setError('Please select a service and time slot');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const hold = await bookingsAPI.createHold(
+        expert._id,
+        selectedService._id,
+        selectedSlot.startTime,
+        'UTC'
+      );
+      
+      setCreatedHold(hold);
+      setStep(3); // Move to confirmation
+    } catch (err) {
+      console.error('Error creating hold:', err);
+      setError(err.response?.data?.message || 'Failed to create booking hold');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleConfirmBooking = async () => {
+    if (!createdHold) {
+      setError('Hold not found');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError(null);
+
+      const booking = await bookingsAPI.confirmBooking(createdHold._id, clientNotes);
+      
+      setStep(4); // Success step
+      
+      // Callback to parent
+      if (onBookingSuccess) {
+        onBookingSuccess(booking);
+      }
+    } catch (err) {
+      console.error('Error confirming booking:', err);
+      setError(err.response?.data?.message || 'Failed to confirm booking');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleNext = () => {
-    if (step === 1) {
+    if (step === 1 && selectedService) {
       setStep(2);
-    } else if (step === 2) {
-      setStep(3);
-    } else {
-      if (onProceedToPayment) {
-        onProceedToPayment({
-          expert,
-          package: {
-            title: serviceName,
-            price: servicePrice,
-            duration: serviceDuration
-          },
-          date: `June ${selectedDay}, 2025`,
-          slot: `${selectedTimeSlot}`,
-          clientName,
-          clientEmail,
-          sessionNotes: notes
-        });
-      }
+    } else if (step === 2 && selectedSlot) {
+      handleCreateHold();
     }
+  };
+
+  const getDaysInMonth = (date) => {
+    return new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+  };
+
+  const getFirstDayOfMonth = (date) => {
+    return new Date(date.getFullYear(), date.getMonth(), 1).getDay();
+  };
+
+  const renderCalendar = () => {
+    const daysInMonth = getDaysInMonth(selectedDate);
+    const firstDay = getFirstDayOfMonth(selectedDate);
+    const days = [];
+
+    // Add empty cells for days before month starts
+    for (let i = 0; i < firstDay; i++) {
+      days.push(null);
+    }
+
+    // Add days of month
+    for (let i = 1; i <= daysInMonth; i++) {
+      days.push(i);
+    }
+
+    return days;
   };
 
   return (
     <div className="exact-booking-overlay" onClick={onClose}>
       <div className="exact-booking-modal-window" onClick={(e) => e.stopPropagation()}>
-        {/* Close Icon in Top Right */}
         <button className="booking-modal-close" onClick={onClose}>
           <X size={20} />
         </button>
 
-        {/* Top Header - Exact match to Screenshot 1 */}
         <div className="exact-booking-header">
           <ExpertHubLogo size={34} />
-
           <div className="booking-help-contact">
-            <span className="help-label">Need help?</span>
-            <button className="support-link-btn">
-              <MessageSquare size={15} color="#2563EB" />
-              <span>Contact Support</span>
-            </button>
+            <span className="help-label">Expert: {expert.firstName} {expert.lastName}</span>
           </div>
         </div>
 
-        {/* Stepper Progress Bar - Exact match to Screenshot 1 */}
+        {/* Step Indicator */}
         <div className="exact-booking-stepper">
           <div className="stepper-track-line" />
-
-          {/* Step 1 */}
-          <div className={`stepper-step-item ${step >= 1 ? 'completed' : ''} ${step === 1 ? 'current' : ''}`}>
-            <div className="stepper-circle">
-              1
+          {[1, 2, 3, 4].map((s) => (
+            <div key={s} className={`stepper-step-item ${step >= s ? 'completed' : ''} ${step === s ? 'current' : ''}`}>
+              <div className="stepper-circle">{s}</div>
+              <span className="stepper-title">
+                {s === 1 ? 'Service' : s === 2 ? 'Date & Time' : s === 3 ? 'Confirm' : 'Success'}
+              </span>
             </div>
-            <span className="stepper-title">Select Date</span>
-          </div>
-
-          <div className={`stepper-connector-bar ${step > 1 ? 'active' : ''}`} />
-
-          {/* Step 2 */}
-          <div className={`stepper-step-item ${step >= 2 ? 'completed' : ''} ${step === 2 ? 'current' : ''}`}>
-            <div className="stepper-circle">
-              2
-            </div>
-            <span className="stepper-title">Select Time</span>
-          </div>
-
-          <div className={`stepper-connector-bar ${step > 2 ? 'active' : ''}`} />
-
-          {/* Step 3 */}
-          <div className={`stepper-step-item ${step >= 3 ? 'completed' : ''} ${step === 3 ? 'current' : ''}`}>
-            <div className="stepper-circle">
-              3
-            </div>
-            <span className="stepper-title">Confirm</span>
-          </div>
+          ))}
         </div>
 
-        {/* 2-Column Content Layout - Exact match to Screenshot 1 */}
+        {/* Content Area */}
         <div className="exact-booking-body-grid">
-          {/* Left Column Card: Calendar or Time Selector */}
-          <div className="booking-left-card">
-            {step === 1 && (
-              <div className="calendar-picker-box">
-                {/* Month Navigator */}
-                <div className="calendar-month-nav">
-                  <button className="cal-nav-arrow" onClick={() => setSelectedMonth('May 2025')}>
-                    <ChevronLeft size={18} />
-                  </button>
-                  <h3 className="cal-month-title">{selectedMonth}</h3>
-                  <button className="cal-nav-arrow" onClick={() => setSelectedMonth('July 2025')}>
-                    <ChevronRight size={18} />
-                  </button>
+          {error && (
+            <div style={{
+              gridColumn: '1 / -1',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+              padding: '12px',
+              borderRadius: '8px',
+              backgroundColor: 'rgba(239, 68, 68, 0.1)',
+              border: '1px solid rgba(239, 68, 68, 0.3)',
+              color: '#fca5a5'
+            }}>
+              <AlertCircle size={16} />
+              <span>{error}</span>
+            </div>
+          )}
+
+          {/* STEP 1: Service Selection */}
+          {step === 1 && (
+            <div className="booking-left-card">
+              <h3 style={{ marginBottom: '16px', fontSize: '16px', fontWeight: '600' }}>Select a Service</h3>
+              {loading ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Loader size={20} className="spinner" />
+                  <span>Loading services...</span>
                 </div>
+              ) : services.length === 0 ? (
+                <p style={{ color: 'var(--text-muted)' }}>No services available</p>
+              ) : (
+                services.map((service) => (
+                  <div
+                    key={service._id}
+                    onClick={() => setSelectedService(service)}
+                    style={{
+                      padding: '12px',
+                      marginBottom: '8px',
+                      borderRadius: '8px',
+                      border: selectedService?._id === service._id ? '2px solid var(--accent-purple)' : '1px solid var(--border-subtle)',
+                      backgroundColor: selectedService?._id === service._id ? 'rgba(139, 92, 246, 0.1)' : 'var(--surface-input)',
+                      cursor: 'pointer',
+                      transition: 'all 0.2s'
+                    }}
+                  >
+                    <div style={{ fontWeight: '600', marginBottom: '4px' }}>{service.title}</div>
+                    <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '4px' }}>
+                      {service.description?.substring(0, 60)}...
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', fontWeight: '600' }}>
+                      <span>${service.pricing?.amount}</span>
+                      <span>{service.duration} min</span>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
 
-                {/* Days of Week Header */}
-                <div className="calendar-weekdays-row">
-                  <span>SUN</span>
-                  <span>MON</span>
-                  <span>TUE</span>
-                  <span>WED</span>
-                  <span>THU</span>
-                  <span>FRI</span>
-                  <span>SAT</span>
+          {/* STEP 2: Date & Time Selection */}
+          {step === 2 && selectedService && (
+            <>
+              <div className="booking-left-card">
+                <h3 style={{ marginBottom: '16px', fontSize: '16px', fontWeight: '600' }}>Select Date</h3>
+                <div style={{ marginBottom: '12px', textAlign: 'center', fontWeight: '600' }}>
+                  {selectedDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
                 </div>
-
-                {/* Dates Grid */}
-                <div className="calendar-dates-grid">
-                  {calendarDays.map((d, index) => {
-                    const isSelected = d.inMonth && selectedDay === d.day;
-                    return (
-                      <button
-                        key={index}
-                        className={`cal-date-cell ${!d.inMonth ? 'dimmed' : ''} ${isSelected ? 'selected' : ''}`}
-                        onClick={() => d.inMonth && setSelectedDay(d.day)}
-                        disabled={!d.inMonth}
-                      >
-                        {d.day}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                <div className="calendar-footer-timezone">
-                  <CalendarIcon size={14} color="#2563EB" />
-                  <span>All times are shown in your local time zone</span>
-                </div>
-
-                <div className="booking-step-action-row">
-                  <button className="booking-primary-btn" onClick={handleNext}>
-                    Next: Select Time <ArrowRight size={15} />
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {step === 2 && (
-              <div className="time-picker-box">
-                <div className="time-picker-header">
-                  <button className="time-back-btn" onClick={() => setStep(1)}>
-                    <ChevronLeft size={16} /> Back to Date
-                  </button>
-                  <h3 className="cal-month-title">June {selectedDay}, 2025</h3>
-                </div>
-
-                <p className="time-picker-prompt">Select an available time slot for your consultation:</p>
-
-                <div className="time-slots-grid">
-                  {timeSlots.map((slot, i) => (
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(7, 1fr)',
+                  gap: '8px',
+                  marginBottom: '16px'
+                }}>
+                  {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map((day) => (
+                    <div key={day} style={{ textAlign: 'center', fontWeight: '600', fontSize: '12px', color: 'var(--text-muted)' }}>
+                      {day}
+                    </div>
+                  ))}
+                  {renderCalendar().map((day, idx) => (
                     <button
-                      key={i}
-                      className={`time-slot-pill ${selectedTimeSlot === slot ? 'active' : ''}`}
-                      onClick={() => setSelectedTimeSlot(slot)}
+                      key={idx}
+                      onClick={() => {
+                        if (day) {
+                          const newDate = new Date(selectedDate);
+                          newDate.setDate(day);
+                          setSelectedDate(newDate);
+                        }
+                      }}
+                      style={{
+                        padding: '8px',
+                        borderRadius: '6px',
+                        border: selectedDate.getDate() === day && selectedDate.getMonth() === new Date().getMonth() ? '2px solid var(--accent-purple)' : '1px solid var(--border-subtle)',
+                        backgroundColor: selectedDate.getDate() === day && selectedDate.getMonth() === new Date().getMonth() ? 'rgba(139, 92, 246, 0.1)' : 'transparent',
+                        cursor: day ? 'pointer' : 'default',
+                        color: day ? 'var(--text-primary)' : 'var(--text-muted)',
+                        opacity: day ? 1 : 0.3,
+                        fontWeight: selectedDate.getDate() === day ? '600' : '400'
+                      }}
+                      disabled={!day}
                     >
-                      <Clock size={14} />
-                      <span>{slot}</span>
+                      {day}
                     </button>
                   ))}
                 </div>
+              </div>
 
-                <div className="booking-step-action-row">
-                  <button className="booking-primary-btn" onClick={handleNext}>
-                    Next: Review & Confirm <ArrowRight size={15} />
-                  </button>
+              <div className="booking-right-card">
+                <h3 style={{ marginBottom: '16px', fontSize: '16px', fontWeight: '600' }}>Select Time</h3>
+                {loading ? (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Loader size={20} className="spinner" />
+                    <span>Loading availability...</span>
+                  </div>
+                ) : availableSlots.length === 0 ? (
+                  <p style={{ color: 'var(--text-muted)' }}>No available slots for this date</p>
+                ) : (
+                  availableSlots.map((slot, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => setSelectedSlot(slot)}
+                      style={{
+                        display: 'block',
+                        width: '100%',
+                        padding: '10px',
+                        marginBottom: '8px',
+                        borderRadius: '6px',
+                        border: selectedSlot === slot ? '2px solid var(--accent-purple)' : '1px solid var(--border-subtle)',
+                        backgroundColor: selectedSlot === slot ? 'rgba(139, 92, 246, 0.1)' : 'var(--surface-input)',
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                        fontWeight: selectedSlot === slot ? '600' : '400'
+                      }}
+                    >
+                      {slot.startTime && new Date(slot.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </button>
+                  ))
+                )}
+              </div>
+            </>
+          )}
+
+          {/* STEP 3: Confirmation */}
+          {step === 3 && createdHold && selectedService && (
+            <div className="booking-left-card">
+              <h3 style={{ marginBottom: '16px', fontSize: '16px', fontWeight: '600', color: '#10b981' }}>
+                ✓ Hold Created
+              </h3>
+              <div style={{ marginBottom: '12px' }}>
+                <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Hold expires in:</div>
+                <div style={{ fontSize: '24px', fontWeight: '700', color: 'var(--accent-purple)' }}>
+                  {holdCountdown}
                 </div>
               </div>
-            )}
-
-            {step === 3 && (
-              <div className="confirm-details-box">
-                <div className="time-picker-header">
-                  <button className="time-back-btn" onClick={() => setStep(2)}>
-                    <ChevronLeft size={16} /> Back to Time
-                  </button>
-                  <h3 className="cal-month-title">Confirm Appointment</h3>
+              <div style={{ marginBottom: '16px', padding: '12px', borderRadius: '8px', backgroundColor: 'var(--surface-input)' }}>
+                <div style={{ marginBottom: '8px' }}>
+                  <strong>Service:</strong> {selectedService.title}
                 </div>
-
-                <div className="confirm-inputs-group">
-                  <div className="confirm-field">
-                    <label>Your Full Name</label>
-                    <input 
-                      type="text" 
-                      value={clientName} 
-                      onChange={(e) => setClientName(e.target.value)} 
-                      placeholder="Alex Rivera"
-                      className="confirm-text-input"
-                    />
-                  </div>
-
-                  <div className="confirm-field">
-                    <label>Email for Calendar Invite</label>
-                    <input 
-                      type="email" 
-                      value={clientEmail} 
-                      onChange={(e) => setClientEmail(e.target.value)} 
-                      placeholder="alex@example.com"
-                      className="confirm-text-input"
-                    />
-                  </div>
-
-                  <div className="confirm-field">
-                    <label>Topics or Questions for the Session</label>
-                    <textarea 
-                      rows={3}
-                      value={notes}
-                      onChange={(e) => setNotes(e.target.value)}
-                      placeholder="Briefly describe what you'd like to focus on..."
-                      className="confirm-textarea"
-                    />
-                  </div>
+                <div style={{ marginBottom: '8px' }}>
+                  <strong>Date:</strong> {selectedDate.toLocaleDateString()}
                 </div>
-
-                <div className="booking-step-action-row">
-                  <button className="booking-primary-btn" onClick={handleNext}>
-                    <ShieldCheck size={16} />
-                    Complete & Pay with Stripe (${servicePrice})
-                  </button>
+                <div style={{ marginBottom: '8px' }}>
+                  <strong>Time:</strong> {selectedSlot?.startTime && new Date(selectedSlot.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </div>
+                <div>
+                  <strong>Price:</strong> ${selectedService.pricing?.amount}
                 </div>
               </div>
-            )}
-          </div>
 
-          {/* Right Column Card: Booking Summary - Exact match to Screenshot 1 */}
-          <div className="booking-right-summary-card">
-            <h3 className="summary-card-title">Booking Summary</h3>
+              <label style={{ display: 'block', marginBottom: '12px' }}>
+                <span style={{ display: 'block', marginBottom: '4px', fontSize: '12px', fontWeight: '600' }}>
+                  Additional Notes (Optional)
+                </span>
+                <textarea
+                  value={clientNotes}
+                  onChange={(e) => setClientNotes(e.target.value)}
+                  placeholder="Any special requests..."
+                  style={{
+                    width: '100%',
+                    height: '60px',
+                    padding: '8px',
+                    borderRadius: '6px',
+                    border: '1px solid var(--border-subtle)',
+                    backgroundColor: 'var(--surface-input)',
+                    color: 'var(--text-primary)',
+                    fontFamily: 'inherit',
+                    resize: 'none'
+                  }}
+                />
+              </label>
+            </div>
+          )}
 
-            {/* Expert Info Row */}
-            <div className="summary-expert-profile">
-              <img src={expert.avatar} alt={expert.name} className="summary-avatar" />
-              <div className="summary-expert-text">
-                <h4 className="summary-expert-name">{expert.name}</h4>
-                <p className="summary-expert-sub">{expert.role}</p>
-                <div className="summary-expert-rating">
-                  <Star size={13} fill="#2563EB" color="#2563EB" />
-                  <span className="rating-score">4.9</span>
-                  <span className="rating-count">({expert.totalReviews || expert.reviewsCount || 128} reviews)</span>
-                </div>
+          {/* STEP 4: Success */}
+          {step === 4 && (
+            <div className="booking-left-card">
+              <div style={{ textAlign: 'center', padding: '24px 0' }}>
+                <CheckCircle size={48} color="#10b981" style={{ marginBottom: '16px' }} />
+                <h2 style={{ fontSize: '20px', fontWeight: '700', marginBottom: '8px', color: '#10b981' }}>
+                  Booking Confirmed!
+                </h2>
+                <p style={{ color: 'var(--text-secondary)', marginBottom: '16px' }}>
+                  Your consultation booking is confirmed.<br/>
+                  Check your email for details.
+                </p>
+                <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                  Status: Payment Pending
+                </p>
               </div>
             </div>
+          )}
+        </div>
 
-            <div className="summary-divider-line" />
-
-            {/* Service Details */}
-            <div className="summary-details-list">
-              <div className="summary-detail-item">
-                <div className="summary-detail-icon">
-                  <FileText size={18} color="#2563EB" />
-                </div>
-                <div className="summary-detail-text">
-                  <span className="detail-label">Service</span>
-                  <strong className="detail-value">{serviceName}</strong>
-                </div>
-              </div>
-
-              <div className="summary-detail-item">
-                <div className="summary-detail-icon">
-                  <Tag size={18} color="#2563EB" />
-                </div>
-                <div className="summary-detail-text">
-                  <span className="detail-label">Price</span>
-                  <strong className="detail-value price-blue">${servicePrice}</strong>
-                </div>
-              </div>
-
-              <div className="summary-detail-item">
-                <div className="summary-detail-icon">
-                  <Clock size={18} color="#2563EB" />
-                </div>
-                <div className="summary-detail-text">
-                  <span className="detail-label">Duration</span>
-                  <strong className="detail-value">{serviceDuration}</strong>
-                </div>
-              </div>
-            </div>
-
-            {/* Alert Banner - Exact match to Screenshot 1 */}
-            <div className="summary-alert-banner">
-              <div className="alert-circle-icon">
-                <Info size={16} />
-              </div>
-              <p className="alert-banner-text">
-                {step === 1 
-                  ? "You'll select a specific time for your appointment in the next step."
-                  : step === 2
-                  ? `Selected slot: June ${selectedDay}, 2025 at ${selectedTimeSlot}`
-                  : `Appointment ready for confirmation with ${expert.name}.`}
-              </p>
-            </div>
-          </div>
+        {/* Footer Actions */}
+        <div style={{ display: 'flex', gap: '12px', padding: '16px 0', borderTop: '1px solid var(--border-subtle)' }}>
+          <button
+            onClick={onClose}
+            style={{
+              flex: 1,
+              padding: '10px',
+              borderRadius: '6px',
+              border: '1px solid var(--border-subtle)',
+              backgroundColor: 'transparent',
+              cursor: 'pointer',
+              fontWeight: '600'
+            }}
+          >
+            {step === 4 ? 'Close' : 'Cancel'}
+          </button>
+          {step < 4 && (
+            <button
+              onClick={step === 3 ? handleConfirmBooking : handleNext}
+              disabled={loading || (step === 1 && !selectedService) || (step === 2 && !selectedSlot)}
+              style={{
+                flex: 1,
+                padding: '10px',
+                borderRadius: '6px',
+                border: 'none',
+                backgroundColor: 'var(--accent-purple)',
+                color: 'white',
+                cursor: 'pointer',
+                fontWeight: '600',
+                opacity: (step === 1 && !selectedService) || (step === 2 && !selectedSlot) || loading ? 0.5 : 1
+              }}
+            >
+              {loading ? <Loader size={16} className="spinner" /> : step === 3 ? 'Confirm Booking' : 'Next'}
+            </button>
+          )}
         </div>
       </div>
     </div>

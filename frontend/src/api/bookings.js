@@ -143,28 +143,46 @@ export const bookingsAPI = {
 
   /**
    * Get expert's availability slots
-   * GET /api/v1/availability/expert/:expertId?date=YYYY-MM-DD
+   * GET /api/v1/availability/expert/:expertId?serviceId=:id&startDate=YYYY-MM-DD&endDate=YYYY-MM-DD
    * 
    * @param {string} expertId - Expert's MongoDB ObjectId
-   * @param {string} date - Optional date filter (YYYY-MM-DD format)
+   * @param {string} serviceId - Service's MongoDB ObjectId (required to determine slot duration)
+   * @param {string} startDate - Start date (YYYY-MM-DD format or ISO 8601)
+   * @param {string} endDate - End date (YYYY-MM-DD format or ISO 8601)
    * @returns {array} Array of availability slot objects
    */
-  getExpertAvailability: async (expertId, date = null) => {
-    const query = date ? `?date=${date}` : '';
-    const response = await client.get(`/availability/expert/${expertId}${query}`);
-    return response.data.data;
+  getExpertAvailability: async (expertId, serviceId, startDate = null, endDate = null) => {
+    // If no dates provided, use today and 14 days from now
+    const start = startDate ? new Date(startDate) : new Date();
+    const end = endDate ? new Date(endDate) : new Date(new Date().getTime() + 14 * 24 * 60 * 60 * 1000);
+    
+    const query = new URLSearchParams({
+      serviceId,
+      startDate: start.toISOString(),
+      endDate: end.toISOString(),
+      timezone: 'UTC'
+    });
+    
+    const response = await client.get(`/availability/expert/${expertId}?${query.toString()}`);
+    return response.data.data.slots || [];
   },
 
   /**
-   * Get all expert's availability slots
-   * GET /api/v1/availability/expert/:expertId/all
+   * Get all expert's available slots without date filter
+   * GET /api/v1/availability/expert/:expertId/all?serviceId=:id
    * 
    * @param {string} expertId - Expert's MongoDB ObjectId
+   * @param {string} serviceId - Service's MongoDB ObjectId
    * @returns {array} Array of all availability slots
    */
-  getExpertAvailabilityAll: async (expertId) => {
-    const response = await client.get(`/availability/expert/${expertId}/all`);
-    return response.data.data;
+  getExpertAvailabilityAll: async (expertId, serviceId) => {
+    const query = new URLSearchParams({
+      serviceId,
+      timezone: 'UTC'
+    });
+    
+    const response = await client.get(`/availability/expert/${expertId}/all?${query.toString()}`);
+    return response.data.data.slots || [];
   },
 
   /**

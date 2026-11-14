@@ -9,11 +9,18 @@ const router = express.Router();
  * Public Routes
  */
 
-// Get expert availability settings
+// Get expert availability settings (legacy route)
 router.get('/experts/:expertId/availability', availabilityController.getAvailability);
 
-// Get available slots
+// Get available slots (legacy route)
 router.get('/experts/:expertId/availability/slots', availabilityController.getAvailableSlots);
+
+// New API v1 routes for booking workflow
+// Get expert's available time slots for booking (with date filter)
+router.get('/availability/expert/:expertId', availabilityController.getAvailableSlots);
+
+// Get all expert's available slots without date filter
+router.get('/availability/expert/:expertId/all', availabilityController.getAvailableSlots);
 
 /**
  * Protected Routes (Expert)
