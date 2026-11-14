@@ -299,4 +299,68 @@ describe('Phase 3C Real Booking Integration Tests', () => {
     expect(activeHolds.length).toBe(1);
     console.log('✓ Only one active hold in database for the slot');
   }, 30000);
+
+  test('Real Booking Transaction Rollback - Failure after write', async () => {
+    expect(expert).toBeDefined();
+    expect(service).toBeDefined();
+    expect(clientToken).toBeDefined();
+
+    // Create a new client
+    const rollbackTestClient = await User.create({
+      email: `phase3c-test-rollback-${Date.now()}@test.com`,
+      password: 'Test123!@#',
+      firstName: 'Rollback',
+      lastName: 'Tester',
+      role: 'client',
+      status: 'active',
+    });
+    const rollbackToken = authService.generateAccessToken(rollbackTestClient);
+
+    // Try to create a hold with PAST time (should fail validation)
+    const pastTime = new Date(Date.now() - 24 * 60 * 60 * 1000); // Yesterday
+
+    const failResponse = await request(app)
+      .post('/api/v1/bookings/holds')
+      .set('Authorization', `Bearer ${rollbackToken}`)
+      .send({
+        expertId: expert._id.toString(),
+        serviceId: service._id.toString(),
+        startTime: pastTime.toISOString(),
+        timezone: 'UTC',
+      });
+
+    // Should fail with 400 (bad request)
+    expect(failResponse.status).not.toBe(201);
+    console.log(`✓ Invalid booking rejected with status ${failResponse.status}`);
+
+    // Verify no orphaned documents in database
+    const orphanedHolds = await BookingHold.find({
+      clientId: rollbackTestClient._id,
+    });
+    expect(orphanedHolds.length).toBe(0);
+    console.log('✓ No orphaned holds from failed transaction');
+
+    // Verify no orphaned reservation units
+    const orphanedUnits = await ReservationUnit.find({
+      clientId: rollbackTestClient._id,
+    });
+    expect(orphanedUnits.length).toBe(0);
+    console.log('✓ No orphaned reservation units');
+
+    // Now try a valid booking - should work (slot available)
+    const futureTime = new Date(Date.now() + 96 * 60 * 60 * 1000); // 4 days out
+    
+    const validResponse = await request(app)
+      .post('/api/v1/bookings/holds')
+      .set('Authorization', `Bearer ${rollbackToken}`)
+      .send({
+        expertId: expert._id.toString(),
+        serviceId: service._id.toString(),
+        startTime: futureTime.toISOString(),
+        timezone: 'UTC',
+      });
+
+    expect(validResponse.status).toBe(201);
+    console.log('✓ Valid booking succeeds after rollback');
+  }, 30000);
 });
