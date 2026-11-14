@@ -417,8 +417,8 @@ class BookingService {
       // Calculate refund
       const refundInfo = await booking.calculateRefund();
       
-      // Update booking
-      await booking.constructor.findByIdAndUpdate(
+      // Update booking and fetch the updated document
+      const updatedBooking = await booking.constructor.findByIdAndUpdate(
         bookingId,
         {
           status: 'cancelled',
@@ -430,13 +430,13 @@ class BookingService {
             refundPercentage: refundInfo.percentage,
           },
         },
-        { session }
+        { session, returnDocument: 'after' }
       );
       
       // Release reservation units (must pass session for transaction consistency)
       await ReservationUnit.releaseBookingReservation(bookingId, session);
       
-      return { booking, refundInfo };
+      return { booking: updatedBooking, refundInfo };
     });
   }
   

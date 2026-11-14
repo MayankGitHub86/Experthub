@@ -217,21 +217,24 @@ describe('Phase 3C Real Booking Integration Tests', () => {
         reason: 'Schedule conflict'
       });
 
-    if (cancelResponse.status !== 200) {
-      console.log('Cancel response status:', cancelResponse.status);
-      console.log('Cancel response body:', JSON.stringify(cancelResponse.body, null, 2));
-    } else {
-      console.log('Cancel success. Response keys:', Object.keys(cancelResponse.body));
-      console.log('Refund info:', cancelResponse.body.refundInfo);
-    }
     expect(cancelResponse.status).toBe(200);
     expect(cancelResponse.body.success).toBe(true);
 
-    // NOTE: There's a bug in the service - it returns the old booking object
-    // Verify from database instead
+    // Verify API returns updated booking with cancelled status
+    const cancelled = cancelResponse.body.data;
+    expect(cancelled.status).toBe('cancelled');
+    console.log('✓ API correctly returned cancelled booking');
+
+    // Verify database also shows cancelled
     const fetchedBooking = await Booking.findById(booking2._id);
     expect(fetchedBooking.status).toBe('cancelled');
-    console.log('✓ Booking cancelled successfully (verified in DB)');
+    console.log('✓ Database verified as cancelled');
+
+    // Verify cancellation metadata
+    expect(cancelled.cancellation).toBeDefined();
+    expect(cancelled.cancellation.cancelledBy.toString()).toBe(clientUser._id.toString());
+    expect(cancelled.cancellation.reason).toBe('Schedule conflict');
+    console.log('✓ Cancellation metadata correct');
 
     // Verify reservation units exist (they should be released but still in DB)
     const allUnits = await ReservationUnit.find({ holdId: hold2._id });

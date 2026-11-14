@@ -8,4 +8,5 @@ export default {
   testTimeout: 60000,
   maxWorkers: 1, // Run tests sequentially to avoid database conflicts
   forceExit: true, // Force Jest to exit after tests complete
+  setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
 };
