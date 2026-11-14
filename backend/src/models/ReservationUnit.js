@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { AppError } from '../middleware/errorHandler.js';
 
 /**
  * ReservationUnit Model
@@ -217,18 +218,20 @@ reservationUnitSchema.statics.createReservation = async function(
     // E11000 = duplicate key (conflict)
     if (error.code === 11000) {
       // Clean up any units that were created before the conflict
-      try {
-        await this.deleteMany({ holdId }, { session: session || undefined });
-      } catch (cleanupErr) {
-        // Log but don't mask the E11000 error
-        console.error('Error cleaning up conflicted units:', cleanupErr);
+      // (only applies to non-transactional contexts; in transactions this is automatic)
+      if (!session) {
+        try {
+          await this.deleteMany({ holdId });
+        } catch (cleanupErr) {
+          // Log but don't mask the E11000 error
+          console.error('Error cleaning up conflicted units:', cleanupErr);
+        }
       }
+      // Note: If in a transaction (session != null), cleanup happens via rollback
       
-      return {
-        success: false,
-        error: 'SLOT_CONFLICT',
-        message: 'Time slot conflicts with existing reservation'
-      };
+      // THROW the error so the calling transaction can be rolled back
+      // Do NOT return success:false - that masks the atomic constraint violation
+      throw new AppError('Time slot conflicts with existing reservation', 409);
     }
     throw error;
   }

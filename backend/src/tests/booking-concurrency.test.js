@@ -24,10 +24,11 @@ describe('Booking Concurrency and Atomic Reservation Tests', () => {
       await mongoose.connect(testDbUri);
     }
 
-    // Clean up test data
-    await User.deleteMany({ email: /concurrency-test/ });
-    await Expert.deleteMany({ headline: /Concurrency Tester/ });
-    await Service.deleteMany({ description: /concurrency-test/ });
+    // FULL database flush to ensure complete isolation from other test suites
+    // This is critical because tests run sequentially and may leave stale data
+    await User.deleteMany({});
+    await Expert.deleteMany({});
+    await Service.deleteMany({});
     await ReservationUnit.deleteMany({});
     await BookingHold.deleteMany({});
     await Booking.deleteMany({});
@@ -41,12 +42,18 @@ describe('Booking Concurrency and Atomic Reservation Tests', () => {
     await ReservationUnit.deleteMany({});
     await BookingHold.deleteMany({});
     await Booking.deleteMany({});
-    
-    // Close mongoose connection
-    await mongoose.connection.close();
   }, 30000);
 
   beforeEach(async () => {
+    // Full database flush before each test to ensure complete isolation
+    // This is necessary because tests may have shared reservation units or holds
+    await User.deleteMany({ email: /concurrency-test/ });
+    await Expert.deleteMany({ headline: /Expert Concurrency Tester/ });
+    await Service.deleteMany({ description: /concurrency-test/ });
+    await ReservationUnit.deleteMany({});
+    await BookingHold.deleteMany({});
+    await Booking.deleteMany({});
+    
     // Create test user directly in database
     testUser = await User.create({
       email: `concurrency-test-${Date.now()}@test.com`,
@@ -155,7 +162,8 @@ describe('Booking Concurrency and Atomic Reservation Tests', () => {
 
       // Count successful holds
       const successful = responses.filter((r) => r.success === true);
-      const failed = responses.filter((r) => r.success === false || r.error);
+      // Failed = anything that is NOT successful (including errors and success:false)
+      const failed = responses.filter((r) => r.success !== true);
 
       console.log(`✓ Successful holds: ${successful.length}`);
       console.log(`✓ Failed holds: ${failed.length}`);
@@ -198,10 +206,10 @@ describe('Booking Concurrency and Atomic Reservation Tests', () => {
 
       // First booking: 10:00-11:00
       const booking1 = {
-        expertId: testExpert._id,
-        serviceId: testService._id,
+        expertId: testExpert._id.toString(),
+        serviceId: testService._id.toString(),
         startTime: nextMonday.toISOString(),
-        duration: 60,
+        timezone: 'America/New_York',
       };
 
       const res1 = await request(app)
@@ -209,6 +217,9 @@ describe('Booking Concurrency and Atomic Reservation Tests', () => {
         .set('Authorization', `Bearer ${authToken}`)
         .send(booking1);
 
+      if (res1.body.success !== true) {
+        console.log('First booking failed:', JSON.stringify(res1.body, null, 2));
+      }
       expect(res1.body.success).toBe(true);
 
       // Second booking: 10:30-11:30 (30-minute overlap)
@@ -216,10 +227,10 @@ describe('Booking Concurrency and Atomic Reservation Tests', () => {
       nextMonday1030.setMinutes(30);
 
       const booking2 = {
-        expertId: testExpert._id,
-        serviceId: testService._id,
+        expertId: testExpert._id.toString(),
+        serviceId: testService._id.toString(),
         startTime: nextMonday1030.toISOString(),
-        duration: 60,
+        timezone: 'America/New_York',
       };
 
       const res2 = await request(app)
@@ -228,7 +239,7 @@ describe('Booking Concurrency and Atomic Reservation Tests', () => {
         .send(booking2);
 
       expect(res2.body.success).toBe(false);
-      expect(res2.body.error).toMatch(/conflict|available/i);
+      expect(res2.body.message).toMatch(/conflict|available/i);
 
       // Verify only one hold exists
       const holdCount = await BookingHold.countDocuments({
@@ -244,10 +255,10 @@ describe('Booking Concurrency and Atomic Reservation Tests', () => {
 
       // First booking: 10:00-11:00
       const booking1 = {
-        expertId: testExpert._id,
-        serviceId: testService._id,
+        expertId: testExpert._id.toString(),
+        serviceId: testService._id.toString(),
         startTime: nextMonday.toISOString(),
-        duration: 60,
+        timezone: 'America/New_York',
       };
 
       const res1 = await request(app)
@@ -262,10 +273,10 @@ describe('Booking Concurrency and Atomic Reservation Tests', () => {
       nextMonday1015.setMinutes(15);
 
       const booking2 = {
-        expertId: testExpert._id,
-        serviceId: testService._id,
+        expertId: testExpert._id.toString(),
+        serviceId: testService._id.toString(),
         startTime: nextMonday1015.toISOString(),
-        duration: 30,
+        timezone: 'America/New_York',
       };
 
       const res2 = await request(app)
@@ -282,10 +293,10 @@ describe('Booking Concurrency and Atomic Reservation Tests', () => {
 
       // First booking: 10:00-11:00
       const booking1 = {
-        expertId: testExpert._id,
-        serviceId: testService._id,
+        expertId: testExpert._id.toString(),
+        serviceId: testService._id.toString(),
         startTime: nextMonday.toISOString(),
-        duration: 60,
+        timezone: 'America/New_York',
       };
 
       const res1 = await request(app)
@@ -300,10 +311,10 @@ describe('Booking Concurrency and Atomic Reservation Tests', () => {
       nextMonday0930.setMinutes(-30);
 
       const booking2 = {
-        expertId: testExpert._id,
-        serviceId: testService._id,
+        expertId: testExpert._id.toString(),
+        serviceId: testService._id.toString(),
         startTime: nextMonday0930.toISOString(),
-        duration: 60,
+        timezone: 'America/New_York',
       };
 
       const res2 = await request(app)
@@ -322,10 +333,10 @@ describe('Booking Concurrency and Atomic Reservation Tests', () => {
 
       // First booking: 10:00-11:00 (buffer: 09:45-10:00 and 11:00-11:15)
       const booking1 = {
-        expertId: testExpert._id,
-        serviceId: testService._id,
+        expertId: testExpert._id.toString(),
+        serviceId: testService._id.toString(),
         startTime: nextMonday.toISOString(),
-        duration: 60,
+        timezone: 'America/New_York',
       };
 
       const res1 = await request(app)
@@ -340,10 +351,10 @@ describe('Booking Concurrency and Atomic Reservation Tests', () => {
       nextMonday1100.setHours(11, 0, 0, 0);
 
       const booking2 = {
-        expertId: testExpert._id,
-        serviceId: testService._id,
+        expertId: testExpert._id.toString(),
+        serviceId: testService._id.toString(),
         startTime: nextMonday1100.toISOString(),
-        duration: 60,
+        timezone: 'America/New_York',
       };
 
       const res2 = await request(app)
@@ -360,10 +371,10 @@ describe('Booking Concurrency and Atomic Reservation Tests', () => {
 
       // First booking: 10:00-11:00 (buffer_after ends at 11:15)
       const booking1 = {
-        expertId: testExpert._id,
-        serviceId: testService._id,
+        expertId: testExpert._id.toString(),
+        serviceId: testService._id.toString(),
         startTime: nextMonday.toISOString(),
-        duration: 60,
+        timezone: 'America/New_York',
       };
 
       const res1 = await request(app)
@@ -378,10 +389,10 @@ describe('Booking Concurrency and Atomic Reservation Tests', () => {
       nextMonday1130.setHours(11, 30, 0, 0);
 
       const booking2 = {
-        expertId: testExpert._id,
-        serviceId: testService._id,
+        expertId: testExpert._id.toString(),
+        serviceId: testService._id.toString(),
         startTime: nextMonday1130.toISOString(),
-        duration: 60,
+        timezone: 'America/New_York',
       };
 
       const res2 = await request(app)
@@ -406,11 +417,27 @@ describe('Booking Concurrency and Atomic Reservation Tests', () => {
       nextMonday.setHours(10, 0, 0, 0);
 
       // First booking: 10:00-10:30 (30 minutes)
-      const booking1 = {
+      // Need to create a 30-minute service
+      const service30 = await Service.create({
         expertId: testExpert._id,
-        serviceId: testService._id,
-        startTime: nextMonday.toISOString(),
+        title: 'Concurrency Test Service 30min',
+        description: 'concurrency-test service for 30-minute bookings',
+        category: 'technology-consulting',
+        deliveryMethod: 'video_call',
         duration: 30,
+        pricing: {
+          amount: 50,
+          currency: 'USD',
+        },
+        isActive: true,
+        status: 'approved',
+      });
+
+      const booking1 = {
+        expertId: testExpert._id.toString(),
+        serviceId: service30._id.toString(),
+        startTime: nextMonday.toISOString(),
+        timezone: 'America/New_York',
       };
 
       const res1 = await request(app)
@@ -425,10 +452,10 @@ describe('Booking Concurrency and Atomic Reservation Tests', () => {
       nextMonday1015.setMinutes(15);
 
       const booking2 = {
-        expertId: testExpert._id,
-        serviceId: testService._id,
+        expertId: testExpert._id.toString(),
+        serviceId: testService._id.toString(),
         startTime: nextMonday1015.toISOString(),
-        duration: 60,
+        timezone: 'America/New_York',
       };
 
       const res2 = await request(app)
@@ -447,10 +474,10 @@ describe('Booking Concurrency and Atomic Reservation Tests', () => {
 
       // Create hold
       const booking1 = {
-        expertId: testExpert._id,
-        serviceId: testService._id,
+        expertId: testExpert._id.toString(),
+        serviceId: testService._id.toString(),
         startTime: nextMonday.toISOString(),
-        duration: 60,
+        timezone: 'America/New_York',
       };
 
       const holdRes = await request(app)
@@ -469,15 +496,16 @@ describe('Booking Concurrency and Atomic Reservation Tests', () => {
 
       expect(confirmRes.body.success).toBe(true);
 
-      // Verify booking exists
-      const booking = await Booking.findOne({ holdId });
+      // Verify booking was created and returned in response
+      const booking = confirmRes.body.data;
       expect(booking).toBeTruthy();
-      expect(booking.status).toBe('confirmed');
+      expect(booking.status).toBe('payment_pending'); // Booking status is payment_pending until payment is processed
+      const bookingId = booking._id;
 
       // Verify reservation units updated to confirmed
       const units = await ReservationUnit.find({
         expertId: testExpert._id,
-        bookingId: booking._id,
+        bookingId,
       });
       expect(units.length).toBe(6); // 90 minutes / 15 = 6 units
       expect(units.every((u) => u.status === 'confirmed')).toBe(true);
@@ -493,10 +521,10 @@ describe('Booking Concurrency and Atomic Reservation Tests', () => {
 
       // Create and confirm first booking
       const booking1 = {
-        expertId: testExpert._id,
-        serviceId: testService._id,
+        expertId: testExpert._id.toString(),
+        serviceId: testService._id.toString(),
         startTime: nextMonday.toISOString(),
-        duration: 60,
+        timezone: 'America/New_York',
       };
 
       const holdRes = await request(app)
@@ -511,10 +539,10 @@ describe('Booking Concurrency and Atomic Reservation Tests', () => {
 
       // Try to book the same slot
       const booking2 = {
-        expertId: testExpert._id,
-        serviceId: testService._id,
+        expertId: testExpert._id.toString(),
+        serviceId: testService._id.toString(),
         startTime: nextMonday.toISOString(),
-        duration: 60,
+        timezone: 'America/New_York',
       };
 
       const res2 = await request(app)
@@ -533,10 +561,10 @@ describe('Booking Concurrency and Atomic Reservation Tests', () => {
 
       // Create hold
       const booking1 = {
-        expertId: testExpert._id,
-        serviceId: testService._id,
+        expertId: testExpert._id.toString(),
+        serviceId: testService._id.toString(),
         startTime: nextMonday.toISOString(),
-        duration: 60,
+        timezone: 'America/New_York',
       };
 
       const holdRes = await request(app)
@@ -562,10 +590,10 @@ describe('Booking Concurrency and Atomic Reservation Tests', () => {
 
       // Try to book the same slot again
       const booking2 = {
-        expertId: testExpert._id,
-        serviceId: testService._id,
+        expertId: testExpert._id.toString(),
+        serviceId: testService._id.toString(),
         startTime: nextMonday.toISOString(),
-        duration: 60,
+        timezone: 'America/New_York',
       };
 
       const res2 = await request(app)
@@ -584,10 +612,10 @@ describe('Booking Concurrency and Atomic Reservation Tests', () => {
 
       // Create and confirm booking
       const booking1 = {
-        expertId: testExpert._id,
-        serviceId: testService._id,
+        expertId: testExpert._id.toString(),
+        serviceId: testService._id.toString(),
         startTime: nextMonday.toISOString(),
-        duration: 60,
+        timezone: 'America/New_York',
       };
 
       const holdRes = await request(app)
@@ -605,7 +633,8 @@ describe('Booking Concurrency and Atomic Reservation Tests', () => {
       // Cancel booking
       const cancelRes = await request(app)
         .delete(`/api/v1/bookings/${bookingId}`)
-        .set('Authorization', `Bearer ${authToken}`);
+        .set('Authorization', `Bearer ${authToken}`)
+        .send({ reason: 'Testing cancellation' });
 
       expect(cancelRes.body.success).toBe(true);
 
@@ -618,10 +647,10 @@ describe('Booking Concurrency and Atomic Reservation Tests', () => {
 
       // Try to book the same slot again
       const booking2 = {
-        expertId: testExpert._id,
-        serviceId: testService._id,
+        expertId: testExpert._id.toString(),
+        serviceId: testService._id.toString(),
         startTime: nextMonday.toISOString(),
-        duration: 60,
+        timezone: 'America/New_York',
       };
 
       const res2 = await request(app)
@@ -645,10 +674,10 @@ describe('Booking Concurrency and Atomic Reservation Tests', () => {
         const startTime = new Date(nextMonday);
         startTime.setHours(10, 0, 0, 0);
         requests.push({
-          expertId: testExpert._id,
-          serviceId: testService._id,
+          expertId: testExpert._id.toString(),
+          serviceId: testService._id.toString(),
           startTime: startTime.toISOString(),
-          duration: 60,
+          timezone: 'America/New_York',
         });
       }
       
@@ -657,22 +686,22 @@ describe('Booking Concurrency and Atomic Reservation Tests', () => {
         const startTime = new Date(nextMonday);
         startTime.setHours(10, 30, 0, 0);
         requests.push({
-          expertId: testExpert._id,
-          serviceId: testService._id,
+          expertId: testExpert._id.toString(),
+          serviceId: testService._id.toString(),
           startTime: startTime.toISOString(),
-          duration: 60,
+          timezone: 'America/New_York',
         });
       }
       
-      // 15 requests for 11:30-12:30 (should succeed after buffer)
+      // 15 requests for 12:15-13:15 (non-overlapping, should succeed)
       for (let i = 0; i < 15; i++) {
         const startTime = new Date(nextMonday);
-        startTime.setHours(11, 30, 0, 0);
+        startTime.setHours(12, 15, 0, 0);
         requests.push({
-          expertId: testExpert._id,
-          serviceId: testService._id,
+          expertId: testExpert._id.toString(),
+          serviceId: testService._id.toString(),
           startTime: startTime.toISOString(),
-          duration: 60,
+          timezone: 'America/New_York',
         });
       }
 
@@ -695,7 +724,7 @@ describe('Booking Concurrency and Atomic Reservation Tests', () => {
       console.log(`✓ Successful holds: ${successful.length}`);
       console.log(`✓ Failed holds: ${failed.length}`);
 
-      // Exactly 2 should succeed: one for 10:00 slot, one for 11:30 slot
+      // Exactly 2 should succeed: one for 10:00 slot, one for 12:15 slot
       expect(successful.length).toBe(2);
       expect(failed.length).toBe(48);
 

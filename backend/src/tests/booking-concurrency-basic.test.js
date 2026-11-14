@@ -24,9 +24,10 @@ describe('Booking Concurrency - Critical Atomic Reservation Test', () => {
       await mongoose.connect(testDbUri);
     }
     
-    await User.deleteMany({ email: /concurrency-basic-test/ });
-    await Expert.deleteMany({ headline: /Atomic Reservation Tester/ });
-    await Service.deleteMany({ description: /atomic reservation test/ });
+    // FULL database flush to ensure complete isolation from other test suites
+    await User.deleteMany({});
+    await Expert.deleteMany({});
+    await Service.deleteMany({});
     await ReservationUnit.deleteMany({});
     await BookingHold.deleteMany({});
     await Booking.deleteMany({});
@@ -39,7 +40,6 @@ describe('Booking Concurrency - Critical Atomic Reservation Test', () => {
     await ReservationUnit.deleteMany({});
     await BookingHold.deleteMany({});
     await Booking.deleteMany({});
-    await mongoose.connection.close();
   }, 30000);
 
   beforeEach(async () => {

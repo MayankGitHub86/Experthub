@@ -38,7 +38,8 @@ describe('Expert Management - Integration Tests', () => {
     await User.deleteMany({ email: /expert-test/ });
     await Expert.deleteMany({ headline: /Expert Test Profile/ });
     
-    await mongoose.connection.close();
+    // Don't close the connection - it's shared across test suites
+    // Each test file should manage its own lifecycle
   }, 30000);
 
   beforeEach(async () => {

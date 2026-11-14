@@ -48,6 +48,16 @@ export const errorHandler = (err, req, res, next) => {
   // Mongoose duplicate key error
   if (err.code === 11000) {
     const field = Object.keys(err.keyPattern)[0];
+    const isBookingEndpoint = req.path && req.path.includes('/bookings');
+    
+    if (isBookingEndpoint) {
+      return res.status(409).json({
+        success: false,
+        code: 'DUPLICATE_ERROR',
+        message: 'Time slot conflicts with existing reservation',
+      });
+    }
+    
     return res.status(409).json({
       status: 'error',
       code: 'DUPLICATE_ERROR',

@@ -23,53 +23,75 @@ class BookingService {
    * 
    * IMPORTANT: Requires MongoDB replica set or sharded cluster
    * Standalone MongoDB will throw an error and transactions will not be available
+   * 
+   * Includes retry logic for transient WriteConflict errors
    */
   async _withTransaction(fn) {
-    let session;
-    let transactionSupported = false;
+    const MAX_RETRIES = 3;
+    let lastError;
     
-    try {
-      session = await mongoose.startSession();
+    for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+      let session;
+      let transactionSupported = false;
       
-      // Check if transactions are actually supported
       try {
-        session.startTransaction();
-        transactionSupported = true;
-      } catch (txnError) {
-        // Transactions not supported (standalone MongoDB)
-        // Provide clear error message
-        if (txnError.message && txnError.message.includes('transactions are not allowed')) {
-          logger.error('MongoDB transactions not supported on this deployment', {
-            error: txnError.message,
-            solution: 'Configure MongoDB replica set with: mongod --replSet rs0'
-          });
-          throw new AppError(
-            'MongoDB replica set required for booking operations. ' +
-            'Configure MongoDB with replication enabled.',
-            500
-          );
-        }
-        throw txnError;
-      }
-      
-      const result = await fn(session);
-      await session.commitTransaction();
-      return result;
-    } catch (error) {
-      // If transaction is active, rollback
-      if (session && transactionSupported) {
+        session = await mongoose.startSession();
+        
+        // Check if transactions are actually supported
         try {
-          await session.abortTransaction();
-        } catch (abortErr) {
-          logger.error('Error aborting transaction', { error: abortErr.message });
+          session.startTransaction();
+          transactionSupported = true;
+        } catch (txnError) {
+          // Transactions not supported (standalone MongoDB)
+          // Provide clear error message
+          if (txnError.message && txnError.message.includes('transactions are not allowed')) {
+            logger.error('MongoDB transactions not supported on this deployment', {
+              error: txnError.message,
+              solution: 'Configure MongoDB replica set with: mongod --replSet rs0'
+            });
+            throw new AppError(
+              'MongoDB replica set required for booking operations. ' +
+              'Configure MongoDB with replication enabled.',
+              500
+            );
+          }
+          throw txnError;
         }
-      }
-      throw error;
-    } finally {
-      if (session) {
-        await session.endSession();
+        
+        const result = await fn(session);
+        await session.commitTransaction();
+        return result;
+      } catch (error) {
+        lastError = error;
+        
+        // If transaction is active, rollback
+        if (session && transactionSupported) {
+          try {
+            await session.abortTransaction();
+          } catch (abortErr) {
+            logger.error('Error aborting transaction', { error: abortErr.message });
+          }
+        }
+        
+        // Retry on WriteConflict errors (transient errors)
+        if (error.message && error.message.includes('WriteConflict') && attempt < MAX_RETRIES - 1) {
+          logger.warn(`Transaction conflict (attempt ${attempt + 1}/${MAX_RETRIES}), retrying...`);
+          // Add small delay before retry
+          await new Promise(resolve => setTimeout(resolve, 100 * (attempt + 1)));
+          continue;
+        }
+        
+        // Don't retry other errors, throw immediately
+        throw error;
+      } finally {
+        if (session) {
+          await session.endSession();
+        }
       }
     }
+    
+    // All retries exhausted
+    throw lastError || new AppError('Transaction failed after retries', 500);
   }
 
   /**
@@ -111,11 +133,10 @@ class BookingService {
     const end = new Date(start.getTime() + duration * 60 * 1000);
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15-minute hold
     
-    // Pre-check for conflicts before entering transaction
-    const hasConflicts = await ReservationUnit.checkConflicts(expertId, start, duration, bufferMinutes);
-    if (hasConflicts) {
-      throw new AppError('Time slot conflicts with existing reservation', 409);
-    }
+    // Note: We do NOT do a pre-check for conflicts here!
+    // The unique index on ReservationUnit will atomically enforce the constraint
+    // within the transaction. Any pre-check would be a TOCTOU (Time-of-Check Time-of-Use) bug
+    // allowing concurrent requests to bypass the constraint.
     
     // Execute in transaction (if supported) or with session cleanup
     try {
@@ -134,7 +155,9 @@ class BookingService {
         const hold = holdDocs[0];
         
         // Reserve units within same transaction
-        const reservationResult = await ReservationUnit.createReservation(
+        // If there's a conflict, createReservation will throw an error,
+        // which will cause the transaction to abort automatically
+        await ReservationUnit.createReservation(
           expertId,
           hold._id,
           start,
@@ -143,11 +166,6 @@ class BookingService {
           expiresAt,
           session
         );
-        
-        if (!reservationResult.success) {
-          // Transaction will be aborted automatically
-          throw new AppError('Time slot conflicts with existing reservation', 409);
-        }
         
         return hold;
       });

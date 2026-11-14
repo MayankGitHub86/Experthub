@@ -57,7 +57,7 @@ describe('Phase 2 Booking Engine - Complete Transactional Test Suite', () => {
     await BookingHold.deleteMany({});
     await Booking.deleteMany({});
     
-    await mongoose.connection.close();
+    // Don't explicitly close - Jest will handle cleanup
   }, 30000);
 
   beforeEach(async () => {

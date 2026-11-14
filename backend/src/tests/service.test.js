@@ -39,7 +39,8 @@ describe('Service Management - Integration Tests', () => {
     await Expert.deleteMany({ headline: /Service Test Expert/ });
     await Service.deleteMany({ title: /Service Test/ });
     
-    await mongoose.connection.close();
+    // Don't close the connection - it's shared across test suites
+    // Each test file should manage its own lifecycle
   }, 30000);
 
   beforeEach(async () => {
@@ -57,7 +58,7 @@ describe('Service Management - Integration Tests', () => {
     testExpert = await Expert.create({
       userId: expertUser._id,
       headline: 'Service Test Expert',
-      bio: 'Expert for service management testing. This is a detailed bio with enough content to pass validation requirements and demonstrate expertise.',
+      bio: 'Expert for service management testing. This is a detailed bio with enough content to pass validation requirements and demonstrate expertise in our system.',
       category: 'Business & Strategy',
       hourlyRate: 150,
       skills: ['testing', 'services'],
@@ -87,7 +88,7 @@ describe('Service Management - Integration Tests', () => {
   test('should create a new service', async () => {
     const serviceData = {
       title: 'Service Test - Software Consultation',
-      description: 'Expert software development and architecture consultation. I will help you design, develop, and deploy scalable systems with comprehensive guidance.',
+      description: 'Expert software development and architecture consultation. I will help you design, develop, and deploy scalable systems with comprehensive guidance and professional support for your organization.',
       category: 'technology-consulting',
       duration: 60,
       pricing: {
@@ -95,7 +96,6 @@ describe('Service Management - Integration Tests', () => {
         amount: 150,
         currency: 'USD',
       },
-      isActive: true,
     };
 
     const response = await request(app)
@@ -116,7 +116,7 @@ describe('Service Management - Integration Tests', () => {
     testService = await Service.create({
       expertId: testExpert._id,
       title: 'Service Test - Retrieve Test',
-      description: 'A service for testing retrieval. This description has enough content to meet validation requirements.',
+      description: 'A service for testing retrieval. This description has enough content to meet validation requirements and shows service details clearly.',
       category: 'technology-consulting',
       duration: 60,
       pricing: {
@@ -124,17 +124,22 @@ describe('Service Management - Integration Tests', () => {
         amount: 150,
         currency: 'USD',
       },
-      isActive: true,
     });
 
-    // Query endpoint - may not require auth or may be public
+    // Activate and approve the service so it shows in public listings
+    await Service.findByIdAndUpdate(testService._id, {
+      isActive: true,
+      status: 'approved',
+    });
+
+    // Query endpoint - returns only approved, active services
     const response = await request(app)
       .get(`/api/v1/services/expert/${testExpert._id}`);
 
     expect(response.status).toBe(200);
     expect(response.body.success).toBe(true);
     expect(Array.isArray(response.body.data)).toBe(true);
-    // Should have at least the service we just created
+    // Should have at least the service we just created and approved
     const foundService = response.body.data.find(s => s._id === testService._id.toString());
     expect(foundService).toBeDefined();
   });
@@ -144,7 +149,7 @@ describe('Service Management - Integration Tests', () => {
     testService = await Service.create({
       expertId: testExpert._id,
       title: 'Service Test - Original',
-      description: 'Original description for update testing. This has sufficient content for validation.',
+      description: 'Original description for update testing. This has sufficient content for validation and testing purposes in our system.',
       category: 'technology-consulting',
       duration: 60,
       pricing: {
@@ -152,12 +157,11 @@ describe('Service Management - Integration Tests', () => {
         amount: 150,
         currency: 'USD',
       },
-      isActive: true,
     });
 
     const updates = {
       title: 'Service Test - Updated Title',
-      description: 'Updated description. Still with enough content to meet validation requirements for service descriptions.',
+      description: 'Updated description. Still with enough content to meet validation requirements for service descriptions in the system.',
       pricing: {
         type: 'hourly',
         amount: 175,
@@ -181,7 +185,7 @@ describe('Service Management - Integration Tests', () => {
     testService = await Service.create({
       expertId: testExpert._id,
       title: 'Service Test - Activate',
-      description: 'Service for testing activation workflow. Contains sufficient content for validation purposes.',
+      description: 'Service for testing activation workflow. Contains sufficient content for validation purposes and demonstrates proper activation testing.',
       category: 'technology-consulting',
       duration: 60,
       pricing: {
@@ -189,7 +193,6 @@ describe('Service Management - Integration Tests', () => {
         amount: 150,
         currency: 'USD',
       },
-      isActive: false,
     });
 
     const response = await request(app)
@@ -203,11 +206,11 @@ describe('Service Management - Integration Tests', () => {
   });
 
   test('should deactivate a service', async () => {
-    // Create active service
+    // Create service (will be active by default)
     testService = await Service.create({
       expertId: testExpert._id,
       title: 'Service Test - Deactivate',
-      description: 'Service for testing deactivation workflow. Has sufficient content for validation.',
+      description: 'Service for testing deactivation workflow. Has sufficient content for validation and proper testing of the feature.',
       category: 'technology-consulting',
       duration: 60,
       pricing: {
@@ -215,7 +218,6 @@ describe('Service Management - Integration Tests', () => {
         amount: 150,
         currency: 'USD',
       },
-      isActive: true,
     });
 
     const response = await request(app)
@@ -233,7 +235,7 @@ describe('Service Management - Integration Tests', () => {
     testService = await Service.create({
       expertId: testExpert._id,
       title: 'Service Test - Delete',
-      description: 'Service to be deleted in this test. Sufficient content provided for validation.',
+      description: 'Service to be deleted in this test. Sufficient content provided for validation and testing of delete functionality.',
       category: 'technology-consulting',
       duration: 60,
       pricing: {
@@ -241,7 +243,6 @@ describe('Service Management - Integration Tests', () => {
         amount: 150,
         currency: 'USD',
       },
-      isActive: true,
     });
 
     const serviceId = testService._id;
@@ -254,7 +255,7 @@ describe('Service Management - Integration Tests', () => {
     expect(response.status).toBe(200);
     expect(response.body.success).toBe(true);
 
-    // Service may be soft-deleted (still exists but marked inactive/deleted)
+    // Service may be soft-deleted (still exists but marked inactive)
     const deletedService = await Service.findById(serviceId);
     expect(deletedService).not.toBeNull();
     // Verify it's deactivated
