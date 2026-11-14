@@ -1,10 +1,13 @@
 import { createServer } from 'http';
+import { createServer } from 'http';
 import { Server } from 'socket.io';
 import app from './app.js';
 import connectDB from './config/database.js';
 import config from './config/environment.js';
 import { logger } from './utils/logger.js';
 import { authenticate as socketAuth } from './middleware/authenticate.js';
+import ReservationUnit from './models/ReservationUnit.js';
+import BookingHold from './models/BookingHold.js';
 
 /**
  * Server Entry Point
@@ -150,6 +153,46 @@ io.on('connection', (socket) => {
 });
 
 // ========================================
+// Background Job Scheduler
+// ========================================
+
+/**
+ * Start expiration cleanup scheduler
+ * Runs every 30 seconds to cleanup expired holds and reservation units
+ */
+const startCleanupScheduler = () => {
+  const CLEANUP_INTERVAL = 30 * 1000; // 30 seconds
+  
+  logger.info('🧹 Starting expiration cleanup scheduler');
+  
+  setInterval(async () => {
+    try {
+      // Clean up expired reservation units (transitions held → released)
+      const unitsReleased = await ReservationUnit.cleanupExpired();
+      
+      // Clean up expired booking holds (transitions active → expired)
+      const holdsExpired = await BookingHold.cleanupExpired();
+      
+      if (unitsReleased > 0 || holdsExpired > 0) {
+        logger.debug('🧹 Expiration cleanup executed', {
+          unitsReleased,
+          holdsExpired,
+          timestamp: new Date().toISOString(),
+        });
+      }
+    } catch (error) {
+      logger.error('❌ Expiration cleanup error:', {
+        message: error.message,
+        timestamp: new Date().toISOString(),
+      });
+      // Continue running despite errors
+    }
+  }, CLEANUP_INTERVAL);
+  
+  logger.info(`✅ Cleanup scheduler active: every ${CLEANUP_INTERVAL / 1000} seconds`);
+};
+
+// ========================================
 // Server Startup
 // ========================================
 
@@ -159,6 +202,9 @@ const startServer = async () => {
   try {
     // Connect to database
     await connectDB();
+    
+    // Start cleanup scheduler
+    startCleanupScheduler();
     
     // Start HTTP server
     httpServer.listen(PORT, () => {
