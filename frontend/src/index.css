@@ -3607,6 +3607,19 @@ input, textarea, select {
   margin-top: 4px;
 }
 
+.auth-error-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border-radius: 8px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #fca5a5;
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+
 /* Forgot Row */
 .auth-forgot-row {
   display: flex;

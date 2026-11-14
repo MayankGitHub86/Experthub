@@ -3,6 +3,7 @@ import {
   X, Mail, Lock, User, Eye, EyeOff, ArrowRight, Shield,
   Sparkles, Briefcase, UserCheck, Settings
 } from 'lucide-react';
+import authAPI from '../../api/auth.js';
 
 export default function AuthModal({ isOpen, onClose, onAuthenticate, initialMode = 'login' }) {
   const [mode, setMode] = useState(initialMode);
@@ -16,6 +17,7 @@ export default function AuthModal({ isOpen, onClose, onAuthenticate, initialMode
     confirmPassword: ''
   });
   const [errors, setErrors] = useState({});
+  const [apiError, setApiError] = useState('');
   const modalRef = useRef(null);
 
   useEffect(() => {
@@ -25,6 +27,7 @@ export default function AuthModal({ isOpen, onClose, onAuthenticate, initialMode
   useEffect(() => {
     if (isOpen) {
       setErrors({});
+      setApiError('');
       setIsLoading(false);
     }
   }, [isOpen, mode]);
@@ -65,25 +68,67 @@ export default function AuthModal({ isOpen, onClose, onAuthenticate, initialMode
     return Object.keys(errs).length === 0;
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!validate()) return;
 
     setIsLoading(true);
-    // Simulate auth delay
-    setTimeout(() => {
-      onAuthenticate({
-        name: formData.name || formData.email.split('@')[0],
-        email: formData.email,
-        role: selectedRole,
-        mode
-      });
+    setApiError('');
+
+    try {
+      if (mode === 'login') {
+        // Call real login API
+        const result = await authAPI.login(formData.email, formData.password);
+        
+        // Store tokens
+        localStorage.setItem('accessToken', result.accessToken);
+        localStorage.setItem('refreshToken', result.refreshToken);
+        localStorage.setItem('user', JSON.stringify(result.user));
+
+        // Call parent callback
+        onAuthenticate({
+          name: result.user.firstName || result.user.email.split('@')[0],
+          email: result.user.email,
+          role: result.user.role,
+          mode,
+          user: result.user,
+        });
+      } else {
+        // Call real register API
+        const result = await authAPI.register({
+          name: formData.name,
+          email: formData.email,
+          password: formData.password,
+          role: selectedRole,
+        });
+
+        // Store tokens
+        localStorage.setItem('accessToken', result.accessToken);
+        localStorage.setItem('refreshToken', result.refreshToken);
+        localStorage.setItem('user', JSON.stringify(result.user));
+
+        // Call parent callback
+        onAuthenticate({
+          name: result.user.firstName || formData.name,
+          email: result.user.email,
+          role: result.user.role,
+          mode,
+          user: result.user,
+        });
+      }
       setIsLoading(false);
-    }, 1200);
+    } catch (error) {
+      setIsLoading(false);
+      const message = error.response?.data?.message || error.message || 'An error occurred';
+      setApiError(message);
+      console.error('Auth error:', error);
+    }
   };
 
   const handleSocialAuth = (provider) => {
     setIsLoading(true);
+    setApiError('');
+    // Social auth not yet implemented - keep as mock
     setTimeout(() => {
       onAuthenticate({
         name: provider === 'google' ? 'Alex Morgan' : 'dev_user',
@@ -206,6 +251,13 @@ export default function AuthModal({ isOpen, onClose, onAuthenticate, initialMode
                   </button>
                 );
               })}
+            </div>
+          )}
+
+          {/* API Error Display */}
+          {apiError && (
+            <div className="auth-error-banner">
+              {apiError}
             </div>
           )}
 
