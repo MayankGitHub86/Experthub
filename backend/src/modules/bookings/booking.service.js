@@ -322,8 +322,8 @@ class BookingService {
     }
     
     // Check authorization
-    const isClient = booking.clientId._id.toString() === userId.toString();
-    const isExpert = booking.expertId.userId.toString() === userId.toString();
+    const isClient = booking.clientId && booking.clientId._id.toString() === userId.toString();
+    const isExpert = booking.expertId && booking.expertId.userId && booking.expertId.userId.toString() === userId.toString();
     const isAdmin = userRole === 'admin';
     
     if (!isClient && !isExpert && !isAdmin) {

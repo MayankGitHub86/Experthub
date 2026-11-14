@@ -13,9 +13,10 @@ import { logger } from '../utils/logger.js';
  */
 
 const connectDB = async () => {
-  // Use separate test database for test environment
-  const dbName = process.env.NODE_ENV === 'test' ? 'experthub_test' : 'experthub';
-  const MONGODB_URI = process.env.MONGODB_URI || `mongodb://localhost:27017/${dbName}?replicaSet=rs0&retryWrites=true&w=majority`;
+  // Use connection string from .env directly
+  // For development: MONGODB_URI should point to development DB  
+  // For testing: NODE_ENV=test + .env.test should point to test DB
+  const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/experthub?replicaSet=rs0&retryWrites=true&w=majority';
   
   const options = {
     // Connection pool size
@@ -29,8 +30,8 @@ const connectDB = async () => {
     // Behavior
     autoIndex: process.env.NODE_ENV !== 'production',
     
-    // Naming
-    dbName: dbName,
+    // Do NOT override dbName - let the URI determine the database
+    // This ensures .env can control which database to use
   };
 
   try {
