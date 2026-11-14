@@ -4722,3 +4722,113 @@ input, textarea, select {
     gap: 12px;
   }
 }
+
+
+/* ==========================================================================
+   EXPERT GRID - LOADING, ERROR, AND EMPTY STATES
+   ========================================================================== */
+
+.exact-loading-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  padding: 80px 40px;
+  min-height: 400px;
+  color: var(--text-secondary);
+}
+
+.exact-loading-state .spinner {
+  animation: spin 1s linear infinite;
+  color: var(--accent-purple);
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.exact-loading-state p {
+  font-size: 16px;
+  color: var(--text-secondary);
+}
+
+.exact-error-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  padding: 80px 40px;
+  min-height: 400px;
+  color: var(--text-secondary);
+}
+
+.exact-error-state p {
+  font-size: 16px;
+  color: var(--text-secondary);
+  text-align: center;
+  max-width: 500px;
+}
+
+.retry-btn {
+  padding: 10px 20px;
+  border-radius: 8px;
+  background: var(--accent-purple);
+  color: white;
+  border: none;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.retry-btn:hover {
+  background: var(--accent-purple-light);
+}
+
+.exact-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  padding: 80px 40px;
+  min-height: 400px;
+  text-align: center;
+}
+
+.exact-empty-state p {
+  font-size: 16px;
+  color: var(--text-secondary);
+}
+
+.reset-filters-btn {
+  padding: 10px 20px;
+  border-radius: 8px;
+  background: var(--accent-purple);
+  color: white;
+  border: none;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.reset-filters-btn:hover {
+  background: var(--accent-purple-light);
+}
+
+/* Responsive Loading/Error States */
+@media (max-width: 768px) {
+  .exact-loading-state,
+  .exact-error-state,
+  .exact-empty-state {
+    padding: 60px 20px;
+    min-height: 300px;
+  }
+  
+  .exact-loading-state .spinner {
+    width: 32px;
+    height: 32px;
+  }
+}

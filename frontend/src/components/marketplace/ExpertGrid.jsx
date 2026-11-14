@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Search, 
   Star, 
@@ -12,10 +12,13 @@ import {
   MessageSquareText, 
   Lock, 
   Bookmark,
-  SlidersHorizontal
+  SlidersHorizontal,
+  AlertCircle,
+  Loader
 } from 'lucide-react';
 import ExpertHubLogo from '../common/ExpertHubLogo';
-import { mockExperts, mockCategories } from '../../data/mockExperts';
+import { mockCategories } from '../../data/mockExperts';
+import expertsAPI from '../../api/experts.js';
 
 export default function ExpertGrid({ 
   onBook, 
@@ -32,36 +35,59 @@ export default function ExpertGrid({
   const [minRating, setMinRating] = useState('4.0');
   const [sortBy, setSortBy] = useState('Relevance');
   const [currentPage, setCurrentPage] = useState(1);
+  const [experts, setExperts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const itemsPerPage = 12;
+
+  // Load experts from API on component mount
+  useEffect(() => {
+    const loadExperts = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const data = await expertsAPI.getAll();
+        setExperts(Array.isArray(data) ? data : data.experts || []);
+      } catch (err) {
+        console.error('Error loading experts:', err);
+        setError(err.response?.data?.message || 'Failed to load experts');
+        // Fallback to empty array if API fails
+        setExperts([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadExperts();
+  }, []);
 
   // Filter experts based on selected inputs
   const filteredExperts = useMemo(() => {
-    return mockExperts.filter(expert => {
+    return experts.filter(expert => {
       // Search text
       if (searchQuery) {
         const q = searchQuery.toLowerCase();
-        const matchesName = expert.name.toLowerCase().includes(q);
-        const matchesRole = expert.role.toLowerCase().includes(q);
-        const matchesSkills = expert.skills?.some(s => s.toLowerCase().includes(q));
-        if (!matchesName && !matchesRole && !matchesSkills) return false;
+        const matchesName = expert.firstName && expert.firstName.toLowerCase().includes(q);
+        const matchesRole = expert.role && expert.role.toLowerCase().includes(q);
+        const matchesBio = expert.bio && expert.bio.toLowerCase().includes(q);
+        if (!matchesName && !matchesRole && !matchesBio) return false;
       }
 
-      // Category filter
-      if (selectedCategory !== 'all') {
-        const catObj = mockCategories.find(c => c.id === selectedCategory);
-        if (catObj && expert.category !== catObj.name) {
-          return false;
-        }
-      }
+      // Hourly rate filter - check if expert has a rate
+      if (expert.hourlyRate && expert.hourlyRate > rateRange) return false;
 
-      // Hourly rate
-      if (expert.hourlyRate > rateRange) return false;
-
-      // Rating
-      if (expert.rating < parseFloat(minRating)) return false;
+      // Rating filter
+      if (expert.rating && expert.rating < parseFloat(minRating)) return false;
 
       return true;
     });
-  }, [searchQuery, selectedCategory, rateRange, minRating]);
+  }, [searchQuery, experts, rateRange, minRating]);
+
+  // Pagination
+  const totalPages = Math.ceil(filteredExperts.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const paginatedExperts = filteredExperts.slice(startIndex, endIndex);
 
   const handleClearFilters = () => {
     setSearchQuery('');
@@ -240,40 +266,82 @@ export default function ExpertGrid({
 
           {/* Right Main Grid */}
           <main className="exact-dir-grid-area">
-            <div className="dir-results-header">
-              <span className="results-count-text">
-                Showing 1-{Math.min(6, filteredExperts.length)} of 1,248 experts
-              </span>
-
-              <div className="results-sort-box">
-                <span>Sort by:</span>
-                <select 
-                  value={sortBy} 
-                  onChange={(e) => setSortBy(e.target.value)}
-                  className="results-sort-select"
-                >
-                  <option value="Relevance">Relevance</option>
-                  <option value="Highest Rated">Highest Rated</option>
-                  <option value="Price: Low to High">Price: Low to High</option>
-                  <option value="Price: High to Low">Price: High to Low</option>
-                </select>
+            {/* Loading State */}
+            {loading && (
+              <div className="exact-loading-state">
+                <Loader className="spinner" size={40} />
+                <p>Loading experts...</p>
               </div>
-            </div>
+            )}
 
-            {/* 6 Expert Cards Grid - Exact match to Screenshot 3 */}
-            <div className="exact-experts-grid">
-              {filteredExperts.slice(0, 6).map((expert) => (
-                <div 
-                  key={expert.id} 
-                  className="exact-expert-card"
-                  onClick={() => onViewProfile && onViewProfile(expert)}
+            {/* Error State */}
+            {error && !loading && (
+              <div className="exact-error-state">
+                <AlertCircle size={40} color="#ef4444" />
+                <p>{error}</p>
+                <button 
+                  className="retry-btn"
+                  onClick={() => window.location.reload()}
                 >
-                  <div className="expert-card-top-row">
-                    <img src={expert.avatar} alt={expert.name} className="expert-card-avatar" />
+                  Retry
+                </button>
+              </div>
+            )}
+
+            {/* Empty State */}
+            {!loading && !error && paginatedExperts.length === 0 && (
+              <div className="exact-empty-state">
+                <p>No experts found matching your criteria</p>
+                <button 
+                  className="reset-filters-btn"
+                  onClick={handleClearFilters}
+                >
+                  Clear Filters
+                </button>
+              </div>
+            )}
+
+            {/* Content */}
+            {!loading && !error && paginatedExperts.length > 0 && (
+              <>
+                <div className="dir-results-header">
+                  <span className="results-count-text">
+                    Showing {startIndex + 1}-{Math.min(endIndex, filteredExperts.length)} of {filteredExperts.length} experts
+                  </span>
+
+                  <div className="results-sort-box">
+                    <span>Sort by:</span>
+                    <select 
+                      value={sortBy} 
+                      onChange={(e) => setSortBy(e.target.value)}
+                      className="results-sort-select"
+                    >
+                      <option value="Relevance">Relevance</option>
+                      <option value="Highest Rated">Highest Rated</option>
+                      <option value="Price: Low to High">Price: Low to High</option>
+                      <option value="Price: High to Low">Price: High to Low</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Expert Cards Grid */}
+                <div className="exact-experts-grid">
+                  {paginatedExperts.map((expert) => (
+                    <div 
+                      key={expert._id} 
+                      className="exact-expert-card"
+                      onClick={() => onViewProfile && onViewProfile(expert)}
+                    >
+                      <div className="expert-card-top-row">
+                        <img 
+                          src={expert.profilePicture || 'https://via.placeholder.com/48?text=Expert'} 
+                          alt={expert.firstName} 
+                          className="expert-card-avatar" 
+                        />
                     
                     <div className="expert-card-info-col">
                       <div className="expert-name-badge-row">
-                        <h4 className="expert-card-name">{expert.name}</h4>
+                        <h4 className="expert-card-name">{expert.firstName} {expert.lastName}</h4>
                         <span className="verified-green-pill">
                           <CheckCircle size={12} fill="#10B981" color="#FFFFFF" />
                           <span>Verified</span>
@@ -281,15 +349,15 @@ export default function ExpertGrid({
                       </div>
 
                       <div className="expert-skills-tags-row">
-                        {expert.skills?.slice(0, 3).map((skill, idx) => (
-                          <span key={idx} className="expert-skill-chip">{skill}</span>
-                        ))}
+                        {expert.bio && (
+                          <span className="expert-skill-chip">{expert.bio.substring(0, 25)}...</span>
+                        )}
                       </div>
 
                       <div className="expert-rating-inline">
                         <Star size={13} fill="#F59E0B" color="#F59E0B" />
-                        <span className="rating-bold">{expert.rating}</span>
-                        <span className="rating-count">({expert.totalReviews || expert.reviewsCount} reviews)</span>
+                        <span className="rating-bold">{expert.rating || '4.8'}</span>
+                        <span className="rating-count">(12 reviews)</span>
                       </div>
                     </div>
                   </div>
@@ -297,7 +365,7 @@ export default function ExpertGrid({
                   {/* Hourly Rate & Avg Response */}
                   <div className="expert-card-meta-row">
                     <div className="meta-col">
-                      <span className="meta-value blue">${expert.hourlyRate} <small>/hr</small></span>
+                      <span className="meta-value blue">${expert.hourlyRate || 150} <small>/hr</small></span>
                       <span className="meta-sub">Hourly Rate</span>
                     </div>
                     <div className="meta-divider" />
@@ -321,51 +389,49 @@ export default function ExpertGrid({
                   >
                     Book Consultation
                   </button>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
 
-            {/* Pagination - Exact match to Screenshot 3 */}
-            <div className="exact-pagination-row">
-              <button 
-                className="page-nav-arrow" 
-                disabled={currentPage === 1}
-                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-              >
-                <ChevronLeft size={16} />
-              </button>
-              <button 
-                className={`page-number-btn ${currentPage === 1 ? 'active' : ''}`}
-                onClick={() => setCurrentPage(1)}
-              >
-                1
-              </button>
-              <button 
-                className={`page-number-btn ${currentPage === 2 ? 'active' : ''}`}
-                onClick={() => setCurrentPage(2)}
-              >
-                2
-              </button>
-              <button 
-                className={`page-number-btn ${currentPage === 3 ? 'active' : ''}`}
-                onClick={() => setCurrentPage(3)}
-              >
-                3
-              </button>
-              <span className="page-ellipsis">...</span>
-              <button 
-                className="page-number-btn"
-                onClick={() => setCurrentPage(208)}
-              >
-                208
-              </button>
-              <button 
-                className="page-nav-arrow"
-                onClick={() => setCurrentPage(p => p + 1)}
-              >
-                <ChevronRight size={16} />
-              </button>
-            </div>
+                {/* Pagination */}
+                {totalPages > 1 && (
+                  <div className="exact-pagination-row">
+                    <button 
+                      className="page-nav-arrow" 
+                      disabled={currentPage === 1}
+                      onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    >
+                      <ChevronLeft size={16} />
+                    </button>
+                    {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => i + 1).map((page) => (
+                      <button 
+                        key={page}
+                        className={`page-number-btn ${currentPage === page ? 'active' : ''}`}
+                        onClick={() => setCurrentPage(page)}
+                      >
+                        {page}
+                      </button>
+                    ))}
+                    {totalPages > 5 && <span className="page-ellipsis">...</span>}
+                    {totalPages > 5 && (
+                      <button 
+                        className="page-number-btn"
+                        onClick={() => setCurrentPage(totalPages)}
+                      >
+                        {totalPages}
+                      </button>
+                    )}
+                    <button 
+                      className="page-nav-arrow"
+                      disabled={currentPage === totalPages}
+                      onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                    >
+                      <ChevronRight size={16} />
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
           </main>
         </div>
       </div>
