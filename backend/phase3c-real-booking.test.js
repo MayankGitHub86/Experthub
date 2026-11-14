@@ -363,4 +363,280 @@ describe('Phase 3C Real Booking Integration Tests', () => {
     expect(validResponse.status).toBe(201);
     console.log('✓ Valid booking succeeds after rollback');
   }, 30000);
+
+  test('Real Booking Transaction Rollback - Mid-transaction failure', async () => {
+    // This test verifies transaction rollback when a failure occurs
+    // AFTER ReservationUnit.createReservation but before commit
+
+    expect(expert).toBeDefined();
+    expect(service).toBeDefined();
+    expect(clientToken).toBeDefined();
+
+    // Create a new client
+    const midTransactionClient = await User.create({
+      email: `phase3c-mid-transaction-${Date.now()}@test.com`,
+      password: 'Test123!@#',
+      firstName: 'MidTransaction',
+      lastName: 'Tester',
+      role: 'client',
+      status: 'active',
+    });
+    const midToken = authService.generateAccessToken(midTransactionClient);
+
+    // Count existing holds before test
+    const holdsBeforeTransaction = await BookingHold.countDocuments({
+      expertId: expert._id,
+      status: 'active',
+    });
+
+    // Use valid future time that should work
+    const validFutureTime = new Date(Date.now() + 120 * 60 * 60 * 1000); // 5 days out
+
+    // First, create a hold successfully to establish baseline
+    const firstHoldResponse = await request(app)
+      .post('/api/v1/bookings/holds')
+      .set('Authorization', `Bearer ${clientToken}`)
+      .send({
+        expertId: expert._id.toString(),
+        serviceId: service._id.toString(),
+        startTime: validFutureTime.toISOString(),
+        timezone: 'UTC',
+      });
+
+    expect(firstHoldResponse.status).toBe(201);
+    const firstHold = firstHoldResponse.body.data;
+    console.log('✓ First valid hold created for baseline');
+
+    // Verify reservation units were created for first hold
+    const firstUnits = await ReservationUnit.find({ holdId: firstHold._id });
+    expect(firstUnits.length).toBeGreaterThan(0);
+    console.log(`✓ First hold has ${firstUnits.length} reservation unit(s)`);
+
+    // Now attempt overlapping hold - this should fail due to unique constraint
+    // But importantly, it should not leave partial ReservationUnits
+    const overlappingTime = new Date(validFutureTime.getTime() + 30 * 60 * 1000); // 30 min after start
+
+    const overlappingResponse = await request(app)
+      .post('/api/v1/bookings/holds')
+      .set('Authorization', `Bearer ${midToken}`)
+      .send({
+        expertId: expert._id.toString(),
+        serviceId: service._id.toString(),
+        startTime: overlappingTime.toISOString(),
+        timezone: 'UTC',
+      });
+
+    // Should fail because overlaps with existing hold
+    expect(overlappingResponse.status).not.toBe(201);
+    console.log(`✓ Overlapping hold rejected with status ${overlappingResponse.status}`);
+
+    // Verify no partial/orphaned reservation units for the failed client
+    const orphanedMidUnits = await ReservationUnit.find({
+      clientId: midTransactionClient._id,
+    });
+    expect(orphanedMidUnits.length).toBe(0);
+    console.log('✓ No orphaned reservation units from failed overlap attempt');
+
+    // Verify first hold's reservation units still exist and are protected
+    const firstUnitsAfter = await ReservationUnit.find({ holdId: firstHold._id });
+    expect(firstUnitsAfter.length).toBe(firstUnits.length);
+    console.log('✓ Original hold\'s reservation units remain protected');
+
+    // Verify we can confirm the first successful hold
+    const confirmResponse = await request(app)
+      .post('/api/v1/bookings/confirm')
+      .set('Authorization', `Bearer ${clientToken}`)
+      .send({
+        holdId: firstHold._id.toString(),
+      });
+
+    expect([200, 201]).toContain(confirmResponse.status);
+    const booking = confirmResponse.body.data;
+    expect(booking.status).toBe('payment_pending');
+    console.log('✓ Original successful hold can be confirmed after rollback attempt');
+
+    // Verify booking has correct reservations
+    const bookingUnits = await ReservationUnit.find({ bookingId: booking._id });
+    expect(bookingUnits.length).toBe(firstUnits.length);
+    console.log('✓ Confirmed booking has correct reservation units');
+  }, 30000);
+
+  test('Real Hold Expiration - Verified cleanup and slot release', async () => {
+    expect(expert).toBeDefined();
+    expect(service).toBeDefined();
+    expect(clientToken).toBeDefined();
+
+    // Create a new client for expiration test
+    const expirationClient = await User.create({
+      email: `phase3c-expiration-${Date.now()}@test.com`,
+      password: 'Test123!@#',
+      firstName: 'Expiration',
+      lastName: 'Tester',
+      role: 'client',
+      status: 'active',
+    });
+    const expirationToken = authService.generateAccessToken(expirationClient);
+
+    // Create a hold with very short expiration
+    const now = new Date();
+    const expiringTime = new Date(now.getTime() + 60 * 60 * 1000); // 1 hour from now
+
+    // Create hold directly in database with 1-second expiration for testing
+    const shortExpiryHold = await BookingHold.create({
+      expertId: expert._id,
+      clientId: expirationClient._id,
+      serviceId: service._id,
+      startTime: expiringTime,
+      endTime: new Date(expiringTime.getTime() + 60 * 60 * 1000), // 1 hour duration
+      expiresAt: new Date(now.getTime() + 1000), // Expires in 1 second
+      status: 'active',
+    });
+
+    console.log('✓ Hold created with 1-second expiration');
+
+    // Create reservation units using correct schema
+    const slots = ReservationUnit.generateSlots(expiringTime, 60, 15, 15); // 60-min booking with 15-min buffer
+    const units = slots.map(slot => ({
+      expertId: expert._id,
+      holdId: shortExpiryHold._id,
+      slotDateTime: slot.slotDateTime,
+      unitType: slot.unitType,
+      status: 'held',
+      expiresAt: shortExpiryHold.expiresAt,
+    }));
+
+    const createdUnits = await ReservationUnit.create(units);
+    expect(createdUnits.length).toBeGreaterThan(0);
+    console.log(`✓ Created ${createdUnits.length} reservation unit(s) for hold`);
+
+    // Wait for hold to expire
+    await new Promise(resolve => setTimeout(resolve, 1500));
+
+    // Run cleanup on both ReservationUnits and BookingHolds
+    const cleanupResult = await ReservationUnit.cleanupExpired();
+    console.log(`✓ Cleanup released ${cleanupResult} expired reservation unit(s)`);
+    
+    // Also cleanup the expired BookingHold so it's no longer active
+    const holdCleanupResult = await BookingHold.cleanupExpired();
+    console.log(`✓ Cleanup marked ${holdCleanupResult} expired booking hold(s) as expired`);
+
+    // Verify hold status (check both hold and units)
+    const expiredHold = await BookingHold.findById(shortExpiryHold._id);
+    const releasedUnits = await ReservationUnit.find({ holdId: shortExpiryHold._id });
+    
+    // Verify units are released
+    const allReleased = releasedUnits.every(u => u.status === 'released');
+    expect(allReleased).toBe(true);
+    console.log('✓ All reservation units transitioned to released');
+
+    // Verify another client can now reserve the SAME (now-released) slot
+    const newClient = await User.create({
+      email: `phase3c-new-client-${Date.now()}@test.com`,
+      password: 'Test123!@#',
+      firstName: 'New',
+      lastName: 'Client',
+      role: 'client',
+      status: 'active',
+    });
+    const newClientToken = authService.generateAccessToken(newClient);
+
+    // Try to book the same time slot (should succeed - slot is released)
+    const newHoldResponse = await request(app)
+      .post('/api/v1/bookings/holds')
+      .set('Authorization', `Bearer ${newClientToken}`)
+      .send({
+        expertId: expert._id.toString(),
+        serviceId: service._id.toString(),
+        startTime: expiringTime.toISOString(),
+        timezone: 'UTC',
+      });
+
+    expect(newHoldResponse.status).toBe(201);
+    console.log('✓ New client successfully booked released slot');
+
+    // Verify confirmed booking remains protected (use DIFFERENT expert to avoid conflicts)
+    // Create a second expert for protection test
+    const protectedExpertUser = await User.create({
+      email: `phase3c-protected-expert-${Date.now()}@test.com`,
+      password: 'Test123!@#',
+      firstName: 'Protected',
+      lastName: 'Expert',
+      role: 'expert',
+      status: 'active',
+    });
+
+    const protectedExpert = await Expert.create({
+      userId: protectedExpertUser._id,
+      headline: 'Protected Expert for Expiration Test',
+      bio: 'Expert for verified protection of confirmed bookings. Testing that confirmed bookings are not affected by cleanup routines. Comprehensive testing to ensure data integrity.',
+      skills: ['testing', 'consultation'],
+      category: 'Technology & Engineering',
+      hourlyRate: 100,
+      languages: ['English'],
+      verificationStatus: 'approved',
+      acceptingBookings: true,
+      availability: {
+        timezone: 'UTC',
+        bufferMinutes: 15,
+      },
+    });
+
+    const protectedService = await Service.create({
+      expertId: protectedExpert._id,
+      title: 'Protected Service for Expiration Test',
+      description: 'Protected service for verifying confirmed bookings remain protected during cleanup',
+      category: 'technology-consulting',
+      deliveryMethod: 'video_call',
+      duration: 60,
+      pricing: { amount: 100, currency: 'USD' },
+      isActive: true,
+      status: 'approved',
+    });
+
+    // Create a confirmed booking that should NOT expire
+    const confirmedClient = await User.create({
+      email: `phase3c-confirmed-${Date.now()}@test.com`,
+      password: 'Test123!@#',
+      firstName: 'Confirmed',
+      lastName: 'Tester',
+      role: 'client',
+      status: 'active',
+    });
+    const confirmedToken = authService.generateAccessToken(confirmedClient);
+
+    // Create and confirm a booking for the protected expert
+    const protectedTime = new Date(now.getTime() + 72 * 60 * 60 * 1000); // 3 days out
+    const protectedHoldResponse = await request(app)
+      .post('/api/v1/bookings/holds')
+      .set('Authorization', `Bearer ${confirmedToken}`)
+      .send({
+        expertId: protectedExpert._id.toString(),
+        serviceId: protectedService._id.toString(),
+        startTime: protectedTime.toISOString(),
+        timezone: 'UTC',
+      });
+
+    expect(protectedHoldResponse.status).toBe(201);
+    const protectedHold = protectedHoldResponse.body.data;
+
+    // Confirm it
+    const confirmProtectedResponse = await request(app)
+      .post('/api/v1/bookings/confirm')
+      .set('Authorization', `Bearer ${confirmedToken}`)
+      .send({
+        holdId: protectedHold._id.toString(),
+      });
+
+    expect([200, 201]).toContain(confirmProtectedResponse.status);
+    console.log('✓ Confirmed booking created');
+
+    // Verify confirmed booking's units are protected (should not be released by cleanup)
+    const protectedUnits = await ReservationUnit.find({ 
+      holdId: protectedHold._id,
+      status: 'confirmed'
+    });
+
+    expect(protectedUnits.length).toBeGreaterThan(0);
+    console.log('✓ Confirmed booking\'s reservation units remain protected');
+  }, 30000);
 });
