@@ -61,9 +61,12 @@ class PaymentService {
     }
 
     // Verify amount matches booking
-    if (amountCents !== booking.totalAmount * 100) {
+    // Note: booking.totalAmount is in currency units (e.g., $100.50 USD)
+    // We convert to cents: $100.50 * 100 = 10050 cents
+    const expectedAmountCents = booking.totalAmount * 100;
+    if (amountCents !== expectedAmountCents) {
       throw new AppError(
-        `Amount mismatch. Expected: ${booking.totalAmount * 100} cents, got: ${amountCents}`,
+        `Amount mismatch. Expected: ${expectedAmountCents} cents (${booking.totalAmount} ${currency}), got: ${amountCents} cents`,
         400
       );
     }
@@ -89,10 +92,20 @@ class PaymentService {
       );
     }
 
-    // Verify expert has charges enabled
+    // Verify expert has card_payments capability enabled (Stripe Accounts v2)
+    // This ensures they can receive funds via destination charges
     if (!expert.stripeChargesEnabled) {
       throw new AppError(
-        'Expert account is not ready to receive payments. Please verify your Stripe account.',
+        'Expert account is not ready to receive payments. Card payments capability not verified.',
+        400
+      );
+    }
+
+    // For v2: Verify merchant.card_payments capability explicitly
+    // (Note: This requires syncing with Stripe; currently only checked via stripeChargesEnabled flag)
+    if (!expert.stripeAccountCapabilities || !expert.stripeAccountCapabilities.card_payments) {
+      throw new AppError(
+        'Expert Stripe account has not enabled card payment capability. Please verify your Stripe account.',
         400
       );
     }
@@ -215,8 +228,12 @@ class PaymentService {
     }
 
     // Verify amount matches
-    if (amount !== booking.totalAmount * 100) {
-      throw new AppError('Payment amount mismatch', 400);
+    const expectedAmountCents = booking.totalAmount * 100;
+    if (amount !== expectedAmountCents) {
+      throw new AppError(
+        `Payment amount mismatch. Expected: ${expectedAmountCents} cents (${booking.totalAmount} ${currency}), got: ${amount} cents`,
+        400
+      );
     }
 
     // Get charge object for Stripe fee info

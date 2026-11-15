@@ -1,6 +1,7 @@
 import express from 'express';
 import * as expertController from './expert.controller.js';
 import * as availabilityController from '../availability/availability.controller.js';
+import expertStripeController from './expert.stripe.controller.js';
 import { authenticate } from '../../middleware/authenticate.js';
 import { isAdmin, authorize } from '../../middleware/authorize.js';
 
@@ -46,6 +47,22 @@ router.post('/me/availability/exceptions', authenticate, authorize('expert'), av
 router.get('/me/availability/exceptions', authenticate, authorize('expert'), availabilityController.getExceptions);
 router.patch('/me/availability/exceptions/:exceptionId', authenticate, authorize('expert'), availabilityController.updateException);
 router.delete('/me/availability/exceptions/:exceptionId', authenticate, authorize('expert'), availabilityController.deleteException);
+
+/**
+ * Stripe Connect Onboarding Routes (authenticated expert)
+ */
+
+// Create Stripe connected account
+router.post('/stripe/create-account', authenticate, authorize('expert'), expertStripeController.createConnectedAccount);
+
+// Get onboarding link
+router.post('/stripe/create-onboarding-link', authenticate, authorize('expert'), expertStripeController.createOnboardingLink);
+
+// Get account status
+router.get('/stripe/account-status', authenticate, authorize('expert'), expertStripeController.getAccountStatus);
+
+// Check payment readiness
+router.get('/stripe/payment-readiness', authenticate, authorize('expert'), expertStripeController.checkPaymentReadiness);
 
 /**
  * Admin Routes

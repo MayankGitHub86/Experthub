@@ -79,6 +79,13 @@ const config = {
     secretKey: process.env.STRIPE_SECRET_KEY || '',
     webhookSecret: process.env.STRIPE_WEBHOOK_SECRET || '',
     publishableKey: process.env.STRIPE_PUBLISHABLE_KEY || '',
+    
+    // Stripe Connect Platform (v2 Accounts)
+    platformCountry: process.env.STRIPE_PLATFORM_COUNTRY || '', // e.g., 'US', 'GB', 'CA'
+    platformAccountId: process.env.STRIPE_PLATFORM_ACCOUNT_ID || '', // Stripe platform account ID
+    
+    // Destination charge configuration
+    commissionPercentage: parseInt(process.env.STRIPE_COMMISSION_PERCENTAGE || '15', 10), // Platform fee %
   },
 
   // OpenAI

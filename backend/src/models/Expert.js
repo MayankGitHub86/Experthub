@@ -151,6 +151,31 @@ const expertSchema = new mongoose.Schema({
     default: false,
   },
   
+  // Stripe Accounts v2 capabilities (checked before payment)
+  stripeAccountCapabilities: {
+    card_payments: {
+      type: String,
+      enum: ['active', 'inactive', 'unrequested', 'pending_verification'],
+      default: 'unrequested',
+    },
+    payouts: {
+      type: String,
+      enum: ['active', 'inactive', 'unrequested', 'pending_verification'],
+      default: 'unrequested',
+    },
+    transfers: {
+      type: String,
+      enum: ['active', 'inactive', 'unrequested', 'pending_verification'],
+      default: 'unrequested',
+    },
+  },
+  
+  // Stripe charges enabled (legacy flag, prefer stripeAccountCapabilities.card_payments)
+  stripeChargesEnabled: {
+    type: Boolean,
+    default: false,
+  },
+  
   // Availability Settings
   availability: {
     timezone: {
