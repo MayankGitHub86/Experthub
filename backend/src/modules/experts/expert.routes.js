@@ -1,5 +1,6 @@
 import express from 'express';
 import * as expertController from './expert.controller.js';
+import * as availabilityController from '../availability/availability.controller.js';
 import { authenticate } from '../../middleware/authenticate.js';
 import { isAdmin, authorize } from '../../middleware/authorize.js';
 
@@ -25,6 +26,9 @@ router.get('/top-rated', expertController.getTopRatedExperts);
 // Get my expert profile
 router.get('/me/profile', authenticate, authorize('expert'), expertController.getMyExpertProfile);
 
+// Get my availability
+router.get('/me/availability', authenticate, authorize('expert'), availabilityController.getAvailability);
+
 // Create expert profile
 router.post('/', authenticate, expertController.createExpert);
 
@@ -33,6 +37,15 @@ router.patch('/me', authenticate, authorize('expert'), expertController.updateEx
 
 // Submit profile for verification
 router.post('/me/submit-verification', authenticate, authorize('expert'), expertController.submitForVerification);
+
+// Update my availability
+router.put('/me/availability', authenticate, authorize('expert'), availabilityController.updateAvailability);
+
+// Exception management
+router.post('/me/availability/exceptions', authenticate, authorize('expert'), availabilityController.createException);
+router.get('/me/availability/exceptions', authenticate, authorize('expert'), availabilityController.getExceptions);
+router.patch('/me/availability/exceptions/:exceptionId', authenticate, authorize('expert'), availabilityController.updateException);
+router.delete('/me/availability/exceptions/:exceptionId', authenticate, authorize('expert'), availabilityController.deleteException);
 
 /**
  * Admin Routes
@@ -59,5 +72,11 @@ router.patch('/admin/:id/reactivate', authenticate, isAdmin, expertController.re
 
 // Get expert by ID (public)
 router.get('/:id', expertController.getExpertById);
+
+// Get expert availability (public)
+router.get('/:expertId/availability', availabilityController.getAvailability);
+
+// Get expert availability slots (public)
+router.get('/:expertId/availability/slots', availabilityController.getAvailableSlots);
 
 export default router;

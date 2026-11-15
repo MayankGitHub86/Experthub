@@ -18,9 +18,11 @@ import {
  */
 export const getAvailability = async (req, res, next) => {
   try {
-    // If expertId is 'me', get the authenticated user's expert profile
-    let expertId = req.params.expertId;
-    if (expertId === 'me') {
+    let expertId;
+    
+    // Check if this is a /me request or a :expertId request
+    if (req.route.path === '/me/availability' || req.user) {
+      // /me/availability endpoint - authenticated expert getting their own
       if (!req.user) {
         return res.status(401).json({
           success: false,
@@ -34,7 +36,16 @@ export const getAvailability = async (req, res, next) => {
           message: 'Expert profile not found',
         });
       }
-      expertId = expert._id.toString();
+      expertId = expert._id;
+    } else {
+      // /:expertId/availability endpoint - public or other access
+      expertId = req.params.expertId;
+      if (!expertId) {
+        return res.status(400).json({
+          success: false,
+          message: 'Expert ID is required',
+        });
+      }
     }
     
     const availability = await availabilityService.getAvailability(expertId);

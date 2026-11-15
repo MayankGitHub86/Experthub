@@ -100,7 +100,6 @@ const apiMiddleware = config.env === 'test' ? [] : [apiLimiter];
 app.use('/api/v1/auth', ...authMiddleware, authRoutes);
 app.use('/api/v1/experts', ...apiMiddleware, expertRoutes);
 app.use('/api/v1/services', ...apiMiddleware, serviceRoutes);
-app.use('/api/v1', ...apiMiddleware, availabilityRoutes);
 app.use('/api/v1/bookings', ...apiMiddleware, bookingRoutes);
 app.use('/api/v1/chat', ...apiMiddleware, chatModuleRoutes);
 
