@@ -177,12 +177,11 @@ conversationSchema.virtual('activeParticipants').get(function() {
 });
 
 // Pre-save middleware
-conversationSchema.pre('save', function(next) {
+conversationSchema.pre('save', async function() {
   // Update lastActivityAt when conversation is modified
   if (this.isModified()) {
     this.lastActivityAt = new Date();
   }
-  next();
 });
 
 // Static method: Find or create conversation between two users

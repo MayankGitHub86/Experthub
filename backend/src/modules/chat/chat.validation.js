@@ -22,11 +22,11 @@ export const createConversationSchema = Joi.object({
     .messages({
       'string.pattern.base': 'Invalid booking ID',
     }),
-}).when('type', {
-  is: 'booking',
-  then: Joi.object({
-    bookingId: Joi.required(),
-  }),
+}).custom((value, helpers) => {
+  if (value.type === 'booking' && !value.bookingId) {
+    return helpers.error('any.invalid', { message: 'bookingId is required for booking type conversations' });
+  }
+  return value;
 });
 
 export const sendMessageSchema = Joi.object({

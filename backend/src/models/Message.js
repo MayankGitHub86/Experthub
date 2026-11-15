@@ -238,7 +238,7 @@ messageSchema.virtual('reactionSummary').get(function() {
 });
 
 // Pre-save middleware
-messageSchema.pre('save', async function(next) {
+messageSchema.pre('save', async function() {
   // Update conversation's last message
   if (this.isNew && !this.deleted) {
     const Conversation = mongoose.model('Conversation');
@@ -257,8 +257,6 @@ messageSchema.pre('save', async function(next) {
       }
     }
   }
-  
-  next();
 });
 
 // Static method: Get conversation messages
