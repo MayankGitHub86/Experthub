@@ -12,44 +12,56 @@ import {
  */
 
 /**
- * @route   GET /api/v1/experts/:expertId/availability
- * @desc    Get expert availability settings
- * @access  Public (with optional auth for /me)
+ * @route   GET /api/v1/experts/me/availability
+ * @desc    Get authenticated expert's own availability settings
+ * @access  Private (Expert)
  */
-export const getAvailability = async (req, res, next) => {
+export const getMyAvailability = async (req, res, next) => {
   try {
-    let expertId;
-    
-    // Check if this is a /me request or a :expertId request
-    if (req.route.path === '/me/availability' || req.user) {
-      // /me/availability endpoint - authenticated expert getting their own
-      if (!req.user) {
-        return res.status(401).json({
-          success: false,
-          message: 'Authentication required',
-        });
-      }
-      const expert = await expertService.getExpertByUserId(req.user.id);
-      if (!expert) {
-        return res.status(404).json({
-          success: false,
-          message: 'Expert profile not found',
-        });
-      }
-      expertId = expert._id;
-    } else {
-      // /:expertId/availability endpoint - public or other access
-      expertId = req.params.expertId;
-      if (!expertId) {
-        return res.status(400).json({
-          success: false,
-          message: 'Expert ID is required',
-        });
-      }
+    if (!req.user) {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required',
+      });
     }
+
+    const expert = await expertService.getExpertByUserId(req.user.id);
+    if (!expert) {
+      return res.status(404).json({
+        success: false,
+        message: 'Expert profile not found',
+      });
+    }
+
+    const availability = await availabilityService.getAvailability(expert._id);
+
+    res.status(200).json({
+      success: true,
+      data: availability,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @route   GET /api/v1/experts/:expertId/availability
+ * @desc    Get expert availability settings (public endpoint)
+ * @access  Public
+ */
+export const getExpertAvailability = async (req, res, next) => {
+  try {
+    const expertId = req.params.expertId;
     
+    if (!expertId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Expert ID is required',
+      });
+    }
+
     const availability = await availabilityService.getAvailability(expertId);
-    
+
     res.status(200).json({
       success: true,
       data: availability,

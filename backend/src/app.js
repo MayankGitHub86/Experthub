@@ -11,7 +11,6 @@ import { apiLimiter, authLimiter } from './middleware/rateLimiter.js';
 import authRoutes from './modules/auth/auth.routes.js';
 import expertRoutes from './modules/experts/expert.routes.js';
 import serviceRoutes from './modules/services/service.routes.js';
-import availabilityRoutes from './modules/availability/availability.routes.js';
 import bookingRoutes from './modules/bookings/booking.routes.js';
 import chatModuleRoutes from './modules/chat/chat.routes.js';
 

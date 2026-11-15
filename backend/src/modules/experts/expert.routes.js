@@ -26,8 +26,8 @@ router.get('/top-rated', expertController.getTopRatedExperts);
 // Get my expert profile
 router.get('/me/profile', authenticate, authorize('expert'), expertController.getMyExpertProfile);
 
-// Get my availability
-router.get('/me/availability', authenticate, authorize('expert'), availabilityController.getAvailability);
+// Get my availability (protected)
+router.get('/me/availability', authenticate, authorize('expert'), availabilityController.getMyAvailability);
 
 // Create expert profile
 router.post('/', authenticate, expertController.createExpert);
@@ -74,7 +74,7 @@ router.patch('/admin/:id/reactivate', authenticate, isAdmin, expertController.re
 router.get('/:id', expertController.getExpertById);
 
 // Get expert availability (public)
-router.get('/:expertId/availability', availabilityController.getAvailability);
+router.get('/:expertId/availability', availabilityController.getExpertAvailability);
 
 // Get expert availability slots (public)
 router.get('/:expertId/availability/slots', availabilityController.getAvailableSlots);
