@@ -34,7 +34,7 @@ export const getAvailability = async (req, res, next) => {
           message: 'Expert profile not found',
         });
       }
-      expertId = expert._id;
+      expertId = expert._id.toString();
     }
     
     const availability = await availabilityService.getAvailability(expertId);
