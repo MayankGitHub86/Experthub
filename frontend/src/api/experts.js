@@ -99,6 +99,117 @@ export const expertsAPI = {
     const response = await client.get(`/experts/${expertId}/stats`);
     return response.data.data;
   },
+
+  /**
+   * Create a new expert profile (current user)
+   * POST /api/v1/experts
+   */
+  create: async (profileData) => {
+    const response = await client.post('/experts', profileData);
+    return response.data.data;
+  },
+
+  /**
+   * Get current user's expert profile
+   * GET /api/v1/experts/me/profile
+   */
+  getMyProfile: async () => {
+    const response = await client.get('/experts/me/profile');
+    return response.data.data;
+  },
+
+  /**
+   * Update current user's expert profile
+   * PATCH /api/v1/experts/me
+   */
+  updateMyProfile: async (profileData) => {
+    const response = await client.patch('/experts/me', profileData);
+    return response.data.data;
+  },
+
+  /**
+   * Submit expert profile for verification
+   * POST /api/v1/experts/me/submit-verification
+   */
+  submitForVerification: async () => {
+    const response = await client.post('/experts/me/submit-verification');
+    return response.data.data;
+  },
+
+  /**
+   * Get all featured experts
+   * GET /api/v1/experts/featured
+   */
+  getFeatured: async () => {
+    const response = await client.get('/experts/featured');
+    return response.data.data;
+  },
+
+  /**
+   * Get top-rated experts
+   * GET /api/v1/experts/top-rated
+   */
+  getTopRated: async () => {
+    const response = await client.get('/experts/top-rated');
+    return response.data.data;
+  },
+
+  /**
+   * Admin: Get pending experts for verification
+   * GET /api/v1/admin/experts/pending
+   */
+  getPendingForApproval: async (filters = {}) => {
+    const params = new URLSearchParams();
+    if (filters.category) params.append('category', filters.category);
+    if (filters.skip) params.append('skip', filters.skip);
+    if (filters.limit) params.append('limit', filters.limit);
+    
+    const query = params.toString() ? `?${params.toString()}` : '';
+    const response = await client.get(`/admin/experts/pending${query}`);
+    return response.data.data;
+  },
+
+  /**
+   * Admin: Approve an expert
+   * PATCH /api/v1/admin/experts/:id/approve
+   */
+  approveExpert: async (expertId, notes = '') => {
+    const response = await client.patch(`/admin/experts/${expertId}/approve`, {
+      verificationNotes: notes || undefined,
+    });
+    return response.data.data;
+  },
+
+  /**
+   * Admin: Reject an expert
+   * PATCH /api/v1/admin/experts/:id/reject
+   */
+  rejectExpert: async (expertId, reason = '') => {
+    const response = await client.patch(`/admin/experts/${expertId}/reject`, {
+      verificationNotes: reason,
+    });
+    return response.data.data;
+  },
+
+  /**
+   * Admin: Suspend an expert
+   * PATCH /api/v1/admin/experts/:id/suspend
+   */
+  suspendExpert: async (expertId, reason = '') => {
+    const response = await client.patch(`/admin/experts/${expertId}/suspend`, {
+      verificationNotes: reason,
+    });
+    return response.data.data;
+  },
+
+  /**
+   * Admin: Reactivate a suspended expert
+   * PATCH /api/v1/admin/experts/:id/reactivate
+   */
+  reactivateExpert: async (expertId) => {
+    const response = await client.patch(`/admin/experts/${expertId}/reactivate`);
+    return response.data.data;
+  },
 };
 
 export default expertsAPI;
