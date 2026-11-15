@@ -9,7 +9,7 @@
  */
 
 import stripe from 'stripe';
-import { config } from '../../config/environment.js';
+import config from '../../config/environment.js';
 import CommissionCalculator from './commission.calculator.js';
 import { AppError } from '../../middleware/errorHandler.js';
 import Transaction from '../../models/Transaction.js';
