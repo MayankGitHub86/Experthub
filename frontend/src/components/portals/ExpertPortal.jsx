@@ -1,44 +1,163 @@
-import React, { useState } from 'react';
-import { 
-  Star, DollarSign, Calendar, Users, Clock, TrendingUp, 
+import React, { useState, useEffect } from 'react';
+import {
+  Star, DollarSign, Calendar, Users, Clock, TrendingUp,
   Video, CheckCircle, ToggleLeft, ToggleRight, Award,
-  ArrowUpRight, MessageSquare, Zap
+  ArrowUpRight, MessageSquare, Zap, Edit3, AlertCircle, Loader
 } from 'lucide-react';
-import { initialBookings } from '../../data/mockBookings';
-import { mockExperts } from '../../data/mockExperts';
-import ReviewModal from '../marketplace/ReviewModal';
-
-// The expert that is logged in
-const EXPERT_ID = 'exp-1';
-const loggedExpert = mockExperts.find(e => e.id === EXPERT_ID) || mockExperts[0];
+import expertsAPI from '../../api/experts.js';
+import bookingsAPI from '../../api/bookings.js';
+import ExpertProfileForm from './ExpertProfileForm.jsx';
+import ReviewModal from '../marketplace/ReviewModal.jsx';
 
 export default function ExpertPortal({ onJoinSession, theme }) {
   const [isAvailable, setIsAvailable] = useState(true);
   const [activeTab, setActiveTab] = useState('overview');
-  const isLight = theme === 'light';
+  const [expertProfile, setExpertProfile] = useState(null);
+  const [myBookings, setMyBookings] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [showProfileForm, setShowProfileForm] = useState(false);
 
-  const mySessions = initialBookings.filter(b => b.expertId === EXPERT_ID || b.expertName === loggedExpert.name);
-  
-  // Compute earnings
-  const totalEarned = mySessions.reduce((s, b) => s + (b.expertEarnings || 0), 0);
-  const completedSessions = mySessions.filter(b => b.status === 'Completed');
-  const upcomingSessions = mySessions.filter(b => b.status === 'Confirmed' || b.status === 'In Session');
-  const pendingPayout = upcomingSessions.reduce((s, b) => s + (b.expertEarnings || 0), 0);
+  const isLight = theme === 'light';
+  const accentColor = isLight ? '#2563eb' : '#8b5cf6';
+
+  // Load expert profile and bookings on mount
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      // Try to fetch expert profile
+      const profile = await expertsAPI.getMyProfile().catch(() => null);
+      if (profile) {
+        setExpertProfile(profile);
+        setIsAvailable(profile.acceptingBookings ?? true);
+      }
+
+      // Try to fetch bookings
+      const bookingsData = await bookingsAPI.getMyBookings({ limit: 50 }).catch(() => null);
+      if (bookingsData?.bookings) {
+        setMyBookings(bookingsData.bookings);
+      }
+    } catch (err) {
+      console.error('Failed to load data:', err);
+      // Fallback: don't show error, use empty state
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Show profile form if no profile exists
+  if (expertProfile && showProfileForm) {
+    return (
+      <ExpertProfileForm
+        theme={theme}
+        onComplete={() => {
+          setShowProfileForm(false);
+          loadData();
+        }}
+      />
+    );
+  }
+
+  // If loading and no profile yet, show spinner
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '400px' }}>
+        <div style={{ textAlign: 'center' }}>
+          <Loader size={32} style={{ animation: 'spin 1s linear infinite', margin: '0 auto 16px', color: accentColor }} />
+          <p>Loading your profile...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // If no profile, show profile creation prompt
+  if (!expertProfile) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+        <div style={{
+          padding: '32px',
+          borderRadius: '16px',
+          backgroundColor: accentColor + '12',
+          border: `2px solid ${accentColor}`,
+          textAlign: 'center',
+        }}>
+          <AlertCircle size={48} style={{ margin: '0 auto 16px', color: accentColor }} />
+          <h2 style={{ fontSize: '20px', fontWeight: '700', color: 'var(--text-primary)', margin: '0 0 8px 0' }}>
+            Complete Your Expert Profile
+          </h2>
+          <p style={{ fontSize: '14px', color: 'var(--text-secondary)', margin: '0 0 20px 0', lineHeight: '1.6' }}>
+            You need to create a complete expert profile before you can start accepting bookings and appearing in the marketplace.
+          </p>
+          <button
+            onClick={() => setShowProfileForm(true)}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '8px',
+              padding: '12px 24px',
+              borderRadius: '8px',
+              border: 'none',
+              backgroundColor: accentColor,
+              color: '#fff',
+              fontSize: '14px',
+              fontWeight: '600',
+              cursor: 'pointer',
+            }}
+          >
+            <Edit3 size={16} />
+            Create Profile
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Calculate stats from bookings
+  const completedSessions = myBookings.filter(b => b.status === 'Completed').length;
+  const upcomingSessions = myBookings.filter(b => b.status === 'Confirmed' || b.status === 'In Session');
+  const totalEarned = myBookings.reduce((sum, b) => {
+    const expertFee = b.totalPrice ? Math.floor(b.totalPrice * 0.85) : 0; // 85% to expert
+    return sum + expertFee;
+  }, 0);
+  const pendingPayout = upcomingSessions.reduce((sum, b) => {
+    const expertFee = b.totalPrice ? Math.floor(b.totalPrice * 0.85) : 0;
+    return sum + expertFee;
+  }, 0);
 
   const statCards = [
     { label: 'Total Earned', value: `$${totalEarned.toLocaleString()}`, icon: DollarSign, trend: '+12%', color: '#10b981' },
-    { label: 'This Month', value: `$${totalEarned.toLocaleString()}`, icon: TrendingUp, trend: '+8%', color: '#3b82f6' },
+    { label: 'This Month', value: `$${(totalEarned * 0.3).toLocaleString('en-US', { maximumFractionDigits: 0 })}`, icon: TrendingUp, trend: '+8%', color: '#3b82f6' },
     { label: 'Pending Payout', value: `$${pendingPayout}`, icon: Clock, trend: null, color: '#f59e0b' },
-    { label: 'Total Sessions', value: mySessions.length, icon: Users, trend: `${completedSessions.length} done`, color: '#8b5cf6' },
+    { label: 'Total Sessions', value: myBookings.length, icon: Users, trend: `${completedSessions} done`, color: '#8b5cf6' },
   ];
 
-  const reviews = loggedExpert.reviews || [];
+  const reviews = expertProfile.reviews || [];
 
-  const accentColor = isLight ? '#2563eb' : '#8b5cf6';
+  // Determine verification status display
+  const getVerificationBadge = () => {
+    const status = expertProfile.verificationStatus;
+    if (status === 'approved') {
+      return { label: 'Verified', color: '#10b981', bgColor: '#dcfce7' };
+    } else if (status === 'submitted' || status === 'under_review') {
+      return { label: 'Under Review', color: '#f59e0b', bgColor: '#fef3c7' };
+    } else if (status === 'rejected') {
+      return { label: 'Rejected', color: '#ef4444', bgColor: '#fee2e2' };
+    } else if (status === 'draft' || !status) {
+      return { label: 'Not Submitted', color: '#6b7280', bgColor: '#f3f4f6' };
+    }
+    return null;
+  };
+
+  const verificationBadge = getVerificationBadge();
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-
       {/* Expert Hero Header */}
       <div style={{
         display: 'flex',
@@ -46,7 +165,7 @@ export default function ExpertPortal({ onJoinSession, theme }) {
         justifyContent: 'space-between',
         padding: '24px 28px',
         borderRadius: '16px',
-        background: isLight 
+        background: isLight
           ? 'linear-gradient(135deg, #1d4ed8 0%, #4f46e5 100%)'
           : 'linear-gradient(135deg, #1e0a3c 0%, #2d1b69 100%)',
         border: '1px solid rgba(255,255,255,0.08)',
@@ -55,11 +174,20 @@ export default function ExpertPortal({ onJoinSession, theme }) {
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
           <div style={{ position: 'relative' }}>
-            <img
-              src={loggedExpert.avatar}
-              alt={loggedExpert.name}
-              style={{ width: '72px', height: '72px', borderRadius: '16px', objectFit: 'cover', border: '3px solid rgba(255,255,255,0.2)' }}
-            />
+            <div style={{
+              width: '72px', height: '72px', borderRadius: '16px',
+              backgroundColor: accentColor + '66',
+              objectFit: 'cover',
+              border: '3px solid rgba(255,255,255,0.2)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '28px',
+              fontWeight: '700',
+              color: '#fff'
+            }}>
+              {expertProfile.user?.firstName?.charAt(0)}{expertProfile.user?.lastName?.charAt(0)}
+            </div>
             <div style={{
               position: 'absolute', bottom: '-4px', right: '-4px',
               width: '18px', height: '18px', borderRadius: '50%',
@@ -69,17 +197,42 @@ export default function ExpertPortal({ onJoinSession, theme }) {
           </div>
           <div>
             <h2 style={{ fontSize: '22px', fontWeight: '800', color: '#ffffff', marginBottom: '4px' }}>
-              Welcome back, {loggedExpert.name.split(' ').slice(-1)[0]}!
+              Welcome back, {expertProfile.user?.firstName}!
             </h2>
-            <p style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)', marginBottom: '8px' }}>{loggedExpert.role}</p>
-            <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                <Star size={13} fill="#fbbf24" color="#fbbf24" />
-                <span style={{ fontSize: '13px', fontWeight: '700', color: '#fbbf24' }}>{loggedExpert.rating}</span>
-                <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)' }}>({loggedExpert.reviewsCount} reviews)</span>
-              </div>
+            <p style={{ fontSize: '13px', color: 'rgba(255,255,255,0.7)', marginBottom: '8px' }}>
+              {expertProfile.headline}
+            </p>
+            <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+              {expertProfile.stats?.rating && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <Star size={13} fill="#fbbf24" color="#fbbf24" />
+                  <span style={{ fontSize: '13px', fontWeight: '700', color: '#fbbf24' }}>
+                    {expertProfile.stats.rating.toFixed(1)}
+                  </span>
+                  <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)' }}>
+                    ({expertProfile.stats.reviewCount || 0} reviews)
+                  </span>
+                </div>
+              )}
               <div style={{ width: '1px', height: '14px', backgroundColor: 'rgba(255,255,255,0.2)' }} />
-              <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.7)' }}>${loggedExpert.hourlyRate}/hr</span>
+              <span style={{ fontSize: '12px', color: 'rgba(255,255,255,0.7)' }}>
+                ${expertProfile.hourlyRate}/hr
+              </span>
+              {verificationBadge && (
+                <>
+                  <div style={{ width: '1px', height: '14px', backgroundColor: 'rgba(255,255,255,0.2)' }} />
+                  <span style={{
+                    fontSize: '11px',
+                    fontWeight: '700',
+                    padding: '4px 10px',
+                    backgroundColor: verificationBadge.bgColor,
+                    color: verificationBadge.color,
+                    borderRadius: '6px'
+                  }}>
+                    {verificationBadge.label}
+                  </span>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -103,7 +256,7 @@ export default function ExpertPortal({ onJoinSession, theme }) {
               {isAvailable ? 'Available' : 'Unavailable'}
             </div>
           </div>
-          <button 
+          <button
             onClick={() => setIsAvailable(!isAvailable)}
             style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: isAvailable ? '#10b981' : 'rgba(255,255,255,0.4)', display: 'flex' }}
           >
@@ -113,7 +266,7 @@ export default function ExpertPortal({ onJoinSession, theme }) {
       </div>
 
       {/* KPI Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
         {statCards.map((card) => {
           const Icon = card.icon;
           return (
@@ -147,8 +300,8 @@ export default function ExpertPortal({ onJoinSession, theme }) {
       </div>
 
       {/* Tabs */}
-      <div style={{ display: 'flex', gap: '4px', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '0' }}>
-        {['overview', 'sessions', 'reviews'].map(tab => (
+      <div style={{ display: 'flex', gap: '4px', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '0', flexWrap: 'wrap' }}>
+        {['overview', 'sessions', 'profile', 'reviews'].map(tab => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -165,7 +318,8 @@ export default function ExpertPortal({ onJoinSession, theme }) {
               transition: 'all 0.2s ease'
             }}
           >
-            {tab === 'overview' ? 'Overview' : tab === 'sessions' ? `Sessions (${mySessions.length})` : `Reviews (${reviews.length})`}
+            {tab === 'profile' && '⚙ '}
+            {tab === 'overview' ? 'Overview' : tab === 'sessions' ? `Sessions (${myBookings.length})` : tab === 'profile' ? 'Settings' : `Reviews (${reviews.length})`}
           </button>
         ))}
       </div>
@@ -179,25 +333,19 @@ export default function ExpertPortal({ onJoinSession, theme }) {
               <Calendar size={16} color={accentColor} />
               Upcoming Sessions
             </h3>
-            {upcomingSessions.length > 0 ? upcomingSessions.map(s => (
-              <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 0', borderBottom: '1px solid var(--border-subtle)' }}>
+            {upcomingSessions.length > 0 ? upcomingSessions.slice(0, 3).map(s => (
+              <div key={s._id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 0', borderBottom: '1px solid var(--border-subtle)' }}>
                 <div>
-                  <div style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '2px' }}>{s.clientName}</div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{s.date} • {s.time}</div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>{s.serviceTitle}</div>
+                  <div style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '2px' }}>
+                    {s.clientId?.firstName} {s.clientId?.lastName}
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                    {new Date(s.startTime).toLocaleDateString()} • {new Date(s.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                    {s.serviceId?.title || 'Consultation'}
+                  </div>
                 </div>
-                {s.roomReady && (
-                  <button
-                    onClick={() => onJoinSession && onJoinSession(s)}
-                    style={{
-                      padding: '7px 14px', borderRadius: '8px', border: 'none',
-                      background: accentColor, color: '#fff', fontSize: '12px',
-                      fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px'
-                    }}
-                  >
-                    <Video size={12} /> Join
-                  </button>
-                )}
               </div>
             )) : (
               <div style={{ textAlign: 'center', padding: '30px 0', color: 'var(--text-muted)', fontSize: '13px' }}>
@@ -212,23 +360,25 @@ export default function ExpertPortal({ onJoinSession, theme }) {
               <Star size={16} color="#f59e0b" />
               Latest Reviews
             </h3>
-            {reviews.length > 0 ? reviews.slice(0, 2).map(r => (
-              <div key={r.id} style={{ padding: '12px 0', borderBottom: '1px solid var(--border-subtle)' }}>
+            {reviews.length > 0 ? reviews.slice(0, 2).map((r, idx) => (
+              <div key={idx} style={{ padding: '12px 0', borderBottom: '1px solid var(--border-subtle)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
-                  <span style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)' }}>{r.authorName}</span>
+                  <span style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)' }}>
+                    {r.clientName || 'Anonymous'}
+                  </span>
                   <div style={{ display: 'flex', gap: '2px' }}>
-                    {[1,2,3,4,5].map(s => (
+                    {[1, 2, 3, 4, 5].map(s => (
                       <Star key={s} size={11} fill={r.rating >= s ? '#f59e0b' : 'transparent'} color={r.rating >= s ? '#f59e0b' : 'var(--border-subtle)'} />
                     ))}
                   </div>
                 </div>
                 <p style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: '1.5', margin: 0 }}>
-                  "{r.comment.slice(0, 100)}..."
+                  "{(r.text || r.comment || '').slice(0, 100)}..."
                 </p>
               </div>
             )) : (
               <div style={{ textAlign: 'center', padding: '30px 0', color: 'var(--text-muted)', fontSize: '13px' }}>
-                No reviews yet.
+                No reviews yet. Complete sessions to receive feedback.
               </div>
             )}
           </div>
@@ -238,69 +388,156 @@ export default function ExpertPortal({ onJoinSession, theme }) {
       {/* Sessions Tab */}
       {activeTab === 'sessions' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          {mySessions.map(s => (
-            <div key={s.id} style={{
+          {myBookings.length > 0 ? myBookings.map(s => (
+            <div key={s._id} style={{
               display: 'flex', alignItems: 'center', justifyContent: 'space-between',
               padding: '16px 20px', borderRadius: '12px', flexWrap: 'wrap', gap: '12px',
               backgroundColor: 'var(--surface-card)', border: '1px solid var(--border-subtle)'
             }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                <img src={s.clientAvatar} alt={s.clientName} style={{ width: '42px', height: '42px', borderRadius: '50%', objectFit: 'cover' }} />
-                <div>
-                  <div style={{ fontSize: '14px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '2px' }}>{s.clientName}</div>
-                  <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{s.serviceTitle}</div>
+              <div>
+                <div style={{ fontSize: '14px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '2px' }}>
+                  {s.clientId?.firstName} {s.clientId?.lastName}
+                </div>
+                <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                  {s.serviceId?.title || 'Consultation'}
                 </div>
               </div>
               <div style={{ textAlign: 'center' }}>
-                <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '2px' }}>{s.date} • {s.time}</div>
+                <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '2px' }}>
+                  {new Date(s.startTime).toLocaleDateString()} • {new Date(s.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
                 <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontSize: '16px', fontWeight: '800', color: '#10b981' }}>+${s.expertEarnings}</div>
+                  <div style={{ fontSize: '16px', fontWeight: '800', color: '#10b981' }}>
+                    +${Math.floor((s.totalPrice || 0) * 0.85)}
+                  </div>
                   <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>your earnings</div>
                 </div>
-                <span className={`badge-status ${s.status === 'Completed' ? 'success' : s.status === 'In Session' ? 'purple' : 'info'}`}>
+                <span style={{
+                  padding: '6px 12px',
+                  borderRadius: '6px',
+                  fontSize: '11px',
+                  fontWeight: '600',
+                  backgroundColor: s.status === 'Completed' ? '#dcfce7' : s.status === 'In Session' ? accentColor + '18' : '#f3f4f6',
+                  color: s.status === 'Completed' ? '#16a34a' : s.status === 'In Session' ? accentColor : '#6b7280',
+                }}>
                   {s.status}
                 </span>
-                {s.roomReady && (
-                  <button
-                    onClick={() => onJoinSession && onJoinSession(s)}
-                    style={{ padding: '8px 16px', borderRadius: '8px', border: 'none', background: accentColor, color: '#fff', fontSize: '12px', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
-                  >
-                    <Video size={13} /> Join Room
-                  </button>
-                )}
               </div>
             </div>
-          ))}
+          )) : (
+            <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-muted)' }}>
+              <Calendar size={36} style={{ opacity: 0.3, margin: '0 auto 16px' }} />
+              <p style={{ fontSize: '14px', margin: 0 }}>No bookings yet. Complete your profile and start accepting clients!</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Profile Settings Tab */}
+      {activeTab === 'profile' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <button
+            onClick={() => setShowProfileForm(true)}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px',
+              padding: '16px 20px',
+              borderRadius: '12px',
+              border: `1px solid ${accentColor}`,
+              backgroundColor: accentColor + '08',
+              color: accentColor,
+              fontSize: '14px',
+              fontWeight: '600',
+              cursor: 'pointer',
+              transition: 'all 0.2s ease',
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.backgroundColor = accentColor;
+              e.target.style.color = '#fff';
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.backgroundColor = accentColor + '08';
+              e.target.style.color = accentColor;
+            }}
+          >
+            <Edit3 size={16} />
+            Edit Profile & Availability
+          </button>
+
+          {/* Verification Status Info */}
+          <div style={{
+            padding: '16px 20px',
+            borderRadius: '12px',
+            backgroundColor: 'var(--surface-card)',
+            border: '1px solid var(--border-subtle)',
+          }}>
+            <h4 style={{ fontSize: '13px', fontWeight: '700', color: 'var(--text-primary)', margin: '0 0 8px 0' }}>
+              Verification Status
+            </h4>
+            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: 0, lineHeight: '1.6' }}>
+              Your profile is currently <strong>{expertProfile.verificationStatus || 'draft'}</strong>.
+              {expertProfile.verificationStatus === 'draft' && (
+                <>
+                  {' '}Once you complete your profile, you can submit it for admin review.
+                </>
+              )}
+              {expertProfile.verificationStatus === 'submitted' && (
+                <>
+                  {' '}Our team is reviewing your profile. This typically takes 1-2 business days.
+                </>
+              )}
+              {expertProfile.verificationStatus === 'approved' && (
+                <>
+                  {' '} ✓ Your profile has been approved! You're now visible to clients.
+                </>
+              )}
+              {expertProfile.verificationStatus === 'rejected' && (
+                <>
+                  {' '}Please update your profile and resubmit for review.
+                </>
+              )}
+            </p>
+          </div>
         </div>
       )}
 
       {/* Reviews Tab */}
       {activeTab === 'reviews' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          {reviews.length > 0 ? reviews.map(r => (
-            <div key={r.id} style={{ display: 'flex', gap: '16px', padding: '20px', borderRadius: '14px', backgroundColor: 'var(--surface-card)', border: '1px solid var(--border-subtle)' }}>
-              {r.authorAvatar ? (
-                <img src={r.authorAvatar} alt={r.authorName} style={{ width: '44px', height: '44px', borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
-              ) : (
-                <div style={{ width: '44px', height: '44px', borderRadius: '50%', backgroundColor: 'var(--surface-input)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '16px', fontWeight: '700', color: 'var(--text-primary)', flexShrink: 0 }}>
-                  {r.authorName.charAt(0)}
-                </div>
-              )}
+          {reviews.length > 0 ? reviews.map((r, idx) => (
+            <div key={idx} style={{ display: 'flex', gap: '16px', padding: '20px', borderRadius: '14px', backgroundColor: 'var(--surface-card)', border: '1px solid var(--border-subtle)' }}>
+              <div style={{
+                width: '44px', height: '44px', borderRadius: '50%',
+                backgroundColor: accentColor + '18',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '16px',
+                fontWeight: '700',
+                color: accentColor,
+                flexShrink: 0
+              }}>
+                {(r.clientName || 'A').charAt(0)}
+              </div>
               <div style={{ flex: 1 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
                   <div>
-                    <div style={{ fontSize: '14px', fontWeight: '700', color: 'var(--text-primary)' }}>{r.authorName}</div>
-                    <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{r.authorRole}</div>
+                    <div style={{ fontSize: '14px', fontWeight: '700', color: 'var(--text-primary)' }}>
+                      {r.clientName || 'Anonymous'}
+                    </div>
                   </div>
                   <div style={{ display: 'flex', gap: '3px' }}>
-                    {[1,2,3,4,5].map(s => (
+                    {[1, 2, 3, 4, 5].map(s => (
                       <Star key={s} size={14} fill={r.rating >= s ? '#f59e0b' : 'transparent'} color={r.rating >= s ? '#f59e0b' : 'var(--border-subtle)'} />
                     ))}
                   </div>
                 </div>
-                <p style={{ fontSize: '14px', color: 'var(--text-primary)', lineHeight: '1.6', marginBottom: '12px' }}>{r.comment}</p>
+                <p style={{ fontSize: '14px', color: 'var(--text-primary)', lineHeight: '1.6', marginBottom: '12px', margin: 0 }}>
+                  {r.text || r.comment}
+                </p>
                 {r.tags && r.tags.length > 0 && (
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
                     {r.tags.map(tag => (
