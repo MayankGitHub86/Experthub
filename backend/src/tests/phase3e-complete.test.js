@@ -207,8 +207,12 @@ describe('Phase 3E - Complete Expert Lifecycle', () => {
 
       expect(response.status).toBe(201);
       expect(response.body.data.title).toBe('Enterprise Digital Strategy Consultation');
-      expect(response.body.data.expertId).toBe(testData.expertId);
-      expect(response.body.data.isActive).toBe(true);
+      // expertId is populated, so extract the ID if it's an object
+      const expertId = typeof response.body.data.expertId === 'object' 
+        ? response.body.data.expertId._id 
+        : response.body.data.expertId;
+      expect(expertId).toBe(testData.expertId);
+      expect(response.body.data.isActive).toBe(false); // Services start inactive by design
 
       testData.serviceId = response.body.data._id;
     });
@@ -239,6 +243,16 @@ describe('Phase 3E - Complete Expert Lifecycle', () => {
 
       expect(response.status).toBe(200);
       expect(response.body.data.pricing.amount).toBe(275);
+    });
+
+    it('Should activate service for marketplace', async () => {
+      // Services must be activated to appear in the marketplace
+      const response = await request(app)
+        .patch(`${baseUrl}/services/${testData.serviceId}/activate`)
+        .set('Authorization', `Bearer ${testData.expertToken}`);
+
+      expect(response.status).toBe(200);
+      expect(response.body.data.isActive).toBe(true);
     });
 
     it('Should prevent unauthorized service modification', async () => {
