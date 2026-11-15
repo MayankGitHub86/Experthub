@@ -144,7 +144,6 @@ export default function AuthModal({ isOpen, onClose, onAuthenticate, initialMode
   const roles = [
     { id: 'client', label: 'Client', desc: 'Book consultations', icon: User },
     { id: 'expert', label: 'Expert', desc: 'Offer services', icon: Briefcase },
-    { id: 'admin', label: 'Admin', desc: 'Manage platform', icon: Settings }
   ];
 
   return (

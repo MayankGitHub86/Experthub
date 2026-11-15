@@ -12,14 +12,21 @@ class ExpertService {
    * Create expert profile
    */
   async createExpert(userId, expertData) {
-    // Check if user exists and is not already an expert
+    // Check if user exists
     const user = await User.findById(userId);
     if (!user) {
       throw new AppError('User not found', 404);
     }
     
+    // Only allow client role to create expert profile (application workflow)
+    // If user is already expert, they're trying to create a second profile
     if (user.role === 'expert') {
       throw new AppError('User already has an expert profile', 400);
+    }
+    
+    // Don't allow admin to create expert profiles for themselves
+    if (user.role === 'admin') {
+      throw new AppError('Admin users cannot create expert profiles', 400);
     }
     
     // Check if expert profile already exists
@@ -43,7 +50,7 @@ class ExpertService {
       },
     });
     
-    // Update user role to expert
+    // Promote user role from client to expert
     user.role = 'expert';
     await user.save();
     
