@@ -156,7 +156,7 @@ describe('Chat Integration Tests', () => {
         .set('Authorization', `Bearer ${client2Token}`);
 
       expect(res.status).toBe(403);
-      expect(res.body.success).toBe(false);
+      expect(res.body.status).toBe('error');
     });
   });
 

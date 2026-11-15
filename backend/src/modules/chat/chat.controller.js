@@ -238,12 +238,22 @@ export const sendMessage = async (req, res, next) => {
     });
 
     await message.save();
-    await message.populate('senderId', 'firstName lastName profilePicture');
+    // Don't populate senderId in response - return raw ID
+    // Let frontend fetch user details if needed via separate endpoints
 
     res.status(201).json({
       success: true,
       message: 'Message sent',
-      data: message,
+      data: {
+        _id: message._id,
+        conversationId: message.conversationId,
+        senderId: message.senderId,
+        type: message.type,
+        content: message.content,
+        deliveryStatus: message.deliveryStatus,
+        createdAt: message.createdAt,
+        updatedAt: message.updatedAt,
+      },
     });
   } catch (error) {
     next(error);

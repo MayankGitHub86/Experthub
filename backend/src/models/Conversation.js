@@ -398,9 +398,11 @@ conversationSchema.methods.block = async function(userId, reason) {
 
 // Instance method: Check if user is participant
 conversationSchema.methods.isParticipant = function(userId) {
-  return this.participants.some(
-    p => p.userId.toString() === userId.toString() && p.isActive
-  );
+  return this.participants.some(p => {
+    // Handle both populated (User object) and non-populated (ObjectId) references
+    const participantUserId = p.userId._id ? p.userId._id : p.userId;
+    return participantUserId.toString() === userId.toString() && p.isActive;
+  });
 };
 
 // Instance method: Get other participant (for direct conversations)
