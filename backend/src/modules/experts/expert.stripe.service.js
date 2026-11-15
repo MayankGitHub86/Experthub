@@ -82,88 +82,118 @@ class ExpertStripeService {
     const user = expert.userId;
 
     try {
-      // Create connected account (Accounts v2)
-      // Reference: https://stripe.com/docs/connect/rest-api/accounts/create
-      const account = await stripeClient.accounts.create({
-        type: 'express', // Express: Stripe hosts onboarding, we control branding
-        country: config.stripe.platformCountry,
-        email: user.email,
+      // Create connected account using Stripe Accounts v2 Core API
+      // Reference: https://docs.stripe.com/connect/accounts-v2
+      // Endpoint: POST /v2/core/accounts (v2 Core, not v1)
+      
+      const accountData = {
+        contact_email: user.email,
+        display_name: `${user.firstName} ${user.lastName}`.trim(),
         
-        // Business information (collected via onboarding)
+        // Full Dashboard access (not Express restricted access)
+        dashboard: 'full',
+        
+        // Legal entity information (v2 identity structure)
+        identity: {
+          country: config.stripe.platformCountry.toLowerCase(),
+          entity_type: options.company ? 'company' : 'individual',
+          
+          ...(options.company ? {
+            business_details: {
+              registered_name: options.company.name,
+              tax_id: options.company.taxId,
+            }
+          } : {
+            individual_details: {
+              first_name: options.legalEntity?.firstName || user.firstName,
+              last_name: options.legalEntity?.lastName || user.lastName,
+              dob: options.legalEntity?.dob || null,
+              address: options.legalEntity?.address || null,
+            }
+          }),
+        },
+        
+        // Account configuration (v2): Merchant receives payments, Recipient receives transfers
+        configuration: {
+          merchant: {
+            capabilities: {
+              card_payments: {
+                requested: true,
+              },
+            },
+          },
+          // Recipient configuration for indirect charges (destination transfers)
+          recipient: {
+            capabilities: {
+              stripe_balance: {
+                stripe_transfers: {
+                  requested: true,
+                },
+              },
+            },
+          },
+        },
+        
+        // Responsibility model: Platform bears fee/loss responsibility
+        defaults: {
+          currency: 'usd',
+          responsibilities: {
+            fees_collector: 'application',      // Platform pays Stripe fees
+            losses_collector: 'application',    // Platform covers losses
+          },
+        },
+        
+        // Metadata for platform tracking
         metadata: {
           expertId: expertId.toString(),
           userId: user._id.toString(),
           platform: 'ExpertHub',
           accountType: 'expert',
         },
+        
+        // Request full response with capabilities and requirements
+        include: [
+          'configuration.merchant',
+          'configuration.recipient',
+          'identity',
+          'requirements',
+        ],
+      };
 
-        // Capabilities required for payments
-        // Explicit request per Accounts v2
-        capabilities: {
-          card_payments: {
-            requested: true, // Expert must enable during onboarding
-          },
-          payouts: {
-            requested: true, // Expert must verify payout details
-          },
-          transfers: {
-            requested: true, // Platform needs to transfer funds
-          },
-        },
-
-        // Legal entity information (if available)
-        ...(options.legalEntity && {
-          individual: {
-            first_name: options.legalEntity.firstName || user.firstName,
-            last_name: options.legalEntity.lastName || user.lastName,
-            email: options.legalEntity.email || user.email,
-            dob: options.legalEntity.dob || null,
-            address: options.legalEntity.address || null,
-            verification: options.legalEntity.verification || null,
-          },
-        }),
-
-        // Company information (if expert is company)
-        ...(options.company && {
-          business_type: options.company.type || 'individual', // individual, sole_proprietorship, partnership, corporation
-          company: {
-            name: options.company.name,
-            tax_id: options.company.taxId,
-          },
-        }),
-
-        // Settings
-        settings: {
-          payouts: {
-            schedule: {
-              interval: 'weekly', // Weekly payouts
-              anchor_weekday: 'friday', // Anchor to Friday
-            },
-            debit_negative_balances: false,
-          },
-        },
-
-        // Support email for Stripe to contact platform
-        support_email: options.supportEmail || config.email.from,
-      });
+      // Use Stripe v2 Core API directly via rawRequest()
+      // The Node SDK's accounts.create() uses v1 endpoint; we need v2 explicitly
+      const account = await stripeClient.rawRequest(
+        'POST',
+        '/v2/core/accounts',
+        accountData
+      );
 
       // Update expert with Stripe account ID
       expert.stripeAccountId = account.id;
       expert.stripeOnboardingComplete = false;
 
-      // Initialize capabilities (marked as unrequested until verified)
+      // Map v2 capabilities to internal model
+      // v2 uses: configuration.merchant.capabilities.card_payments.status
+      //          configuration.recipient.capabilities.stripe_balance.stripe_transfers.status
+      const merchantCardPayments = account.configuration?.merchant?.capabilities?.card_payments?.status || 'unrequested';
+      const recipientTransfers = account.configuration?.recipient?.capabilities?.stripe_balance?.stripe_transfers?.status || 'unrequested';
+      
       expert.stripeAccountCapabilities = {
-        card_payments: 'pending_verification',
-        payouts: 'pending_verification',
-        transfers: 'pending_verification',
+        card_payments: merchantCardPayments === 'active' ? 'active' : 'pending_verification',
+        payouts: 'pending_verification',  // Payouts enabled via payout method, not capability
+        transfers: recipientTransfers === 'active' ? 'active' : 'pending_verification',
       };
 
       await expert.save();
 
-      logger.info('Created Stripe connected account for expert', {
+      logger.info('Created Stripe v2 connected account for expert', {
         expertId,
         stripeAccountId: account.id,
         country: config.stripe.platformCountry,
+        accountConfiguration: {
+          merchant: account.configuration?.merchant,
+          recipient: account.configuration?.recipient,
+        },
         requirements: account.requirements,
       });
 
@@ -171,18 +201,18 @@ class ExpertStripeService {
         success: true,
         account: {
           id: account.id,
-          country: account.country,
-          type: account.type,
-          email: account.email,
+          configuration: account.configuration,
+          identity: account.identity,
           metadata: account.metadata,
-          capabilities: account.capabilities,
           requirements: account.requirements, // What expert must provide
-          charges_enabled: account.charges_enabled, // Can receive charges
-          payouts_enabled: account.payouts_enabled, // Can receive payouts
+          capabilities: {
+            merchant: account.configuration?.merchant?.capabilities,
+            recipient: account.configuration?.recipient?.capabilities,
+          },
         },
       };
     } catch (error) {
-      logger.error('Failed to create connected account', {
+      logger.error('Failed to create v2 connected account', {
         expertId,
         error: error.message,
         stripeCode: error.code,
@@ -303,56 +333,67 @@ class ExpertStripeService {
     }
 
     try {
-      // Fetch account from Stripe
-      const account = await stripeClient.accounts.retrieve(expert.stripeAccountId);
+      // Fetch account from Stripe v2 API
+      // Use rawRequest to get v2 structure with configuration
+      const account = await stripeClient.rawRequest(
+        'GET',
+        `/v2/core/accounts/${expert.stripeAccountId}`,
+        {},
+        {
+          // Request full response
+          query: {
+            include: ['configuration.merchant', 'configuration.recipient', 'identity', 'requirements'],
+          },
+        }
+      );
 
-      // Map capability status from Stripe
-      // Stripe v2 capabilities have status: 'active', 'inactive', 'unrequested', 'pending_verification'
-      const mapCapabilityStatus = (capability) => {
-        if (!capability) return 'unrequested';
-        if (capability.active) return 'active';
-        if (capability.disabled) return 'inactive';
-        if (capability.requirements?.current_deadline) return 'pending_verification';
-        return 'inactive';
-      };
-
-      // Update expert capabilities
+      // Map v2 configuration capabilities to internal model
+      const merchantCardPayments = account.configuration?.merchant?.capabilities?.card_payments?.status || 'unrequested';
+      const recipientTransfers = account.configuration?.recipient?.capabilities?.stripe_balance?.stripe_transfers?.status || 'unrequested';
+      
       expert.stripeAccountCapabilities = {
-        card_payments: mapCapabilityStatus(account.capabilities?.card_payments),
-        payouts: mapCapabilityStatus(account.capabilities?.payouts),
-        transfers: mapCapabilityStatus(account.capabilities?.transfers),
+        card_payments: merchantCardPayments === 'active' ? 'active' : (merchantCardPayments === 'unrequested' ? 'unrequested' : 'pending_verification'),
+        payouts: 'pending_verification',  // Determined by payout method configuration
+        transfers: recipientTransfers === 'active' ? 'active' : (recipientTransfers === 'unrequested' ? 'unrequested' : 'pending_verification'),
       };
 
-      // Update payout/charges flags
-      expert.stripePayoutsEnabled = account.payouts_enabled || false;
-      expert.stripeChargesEnabled = account.charges_enabled || false;
-
-      // Mark onboarding complete if key capabilities are active
-      const chargesActive = account.capabilities?.card_payments?.active || false;
-      const payoutsActive = account.capabilities?.payouts?.active || false;
-
-      expert.stripeOnboardingComplete = chargesActive && payoutsActive;
-
+      // Check if onboarding is complete
+      // Requirements should be empty and both key capabilities should be active
+      const merchantReady = merchantCardPayments === 'active';
+      const recipientReady = recipientTransfers === 'active';
+      const noCurrentRequirements = !account.requirements?.currently_due || account.requirements.currently_due.length === 0;
+      
+      expert.stripeOnboardingComplete = merchantReady && recipientReady && noCurrentRequirements;
+      
+      // Note: payouts_enabled is set via bank account connection (separate step)
+      // Not directly from capabilities, so leave stripePayoutsEnabled as-is unless explicitly enabled
+      
       await expert.save();
 
-      logger.info('Synced Stripe account status', {
+      logger.info('Synced Stripe v2 account status', {
         expertId,
         stripeAccountId: expert.stripeAccountId,
-        chargesEnabled: expert.stripeChargesEnabled,
-        payoutsEnabled: expert.stripePayoutsEnabled,
+        cardPaymentsStatus: merchantCardPayments,
+        transfersStatus: recipientTransfers,
         onboardingComplete: expert.stripeOnboardingComplete,
         capabilities: expert.stripeAccountCapabilities,
-        requirements: account.requirements,
+        currentRequirements: account.requirements?.currently_due,
       });
 
       return {
         success: true,
         account: {
           id: account.id,
-          chargesEnabled: account.charges_enabled,
-          payoutsEnabled: account.payouts_enabled,
+          configuration: {
+            merchant: account.configuration?.merchant,
+            recipient: account.configuration?.recipient,
+          },
+          identity: account.identity,
           onboardingComplete: expert.stripeOnboardingComplete,
-          capabilities: expert.stripeAccountCapabilities,
+          capabilities: {
+            card_payments: merchantCardPayments,
+            transfers: recipientTransfers,
+          },
           requirements: account.requirements, // What still needs to be provided
           requirementsDue: account.requirements?.current_deadline
             ? new Date(account.requirements.current_deadline * 1000)
@@ -360,7 +401,7 @@ class ExpertStripeService {
         },
       };
     } catch (error) {
-      logger.error('Failed to sync account status', {
+      logger.error('Failed to sync v2 account status', {
         expertId,
         stripeAccountId: expert.stripeAccountId,
         error: error.message,
@@ -398,28 +439,31 @@ class ExpertStripeService {
       warnings: [],
       details: {
         hasStripeAccount: !!expert.stripeAccountId,
-        cardPaymentsActive: expert.stripeAccountCapabilities?.card_payments === 'active',
-        payoutsActive: expert.stripeAccountCapabilities?.payouts === 'active',
-        chargesEnabled: expert.stripeChargesEnabled,
-        payoutsEnabled: expert.stripePayoutsEnabled,
+        // v2: Check merchant card_payments capability for receiving payments
+        merchantCardPaymentsActive: expert.stripeAccountCapabilities?.card_payments === 'active',
+        // v2: Check recipient stripe_transfers capability for indirect charges
+        recipientTransfersActive: expert.stripeAccountCapabilities?.transfers === 'active',
+        onboardingComplete: expert.stripeOnboardingComplete,
         expertVerified: expert.verificationStatus === 'approved',
       },
     };
 
-    // Check for issues
+    // Check for payment blocking issues
     if (!expert.stripeAccountId) {
       readiness.ready = false;
       readiness.issues.push('No Stripe account connected');
     }
 
+    // v2: Merchant must have card_payments capability active
     if (expert.stripeAccountCapabilities?.card_payments !== 'active') {
       readiness.ready = false;
-      readiness.issues.push('Card payments capability not active');
+      readiness.issues.push('Merchant card_payments capability not active');
     }
 
-    if (!expert.stripeChargesEnabled) {
+    // v2: Recipient must have stripe_transfers capability for indirect charges
+    if (expert.stripeAccountCapabilities?.transfers !== 'active') {
       readiness.ready = false;
-      readiness.issues.push('Stripe charges not enabled');
+      readiness.issues.push('Recipient stripe_transfers capability not active (required for indirect charges)');
     }
 
     if (expert.verificationStatus !== 'approved') {
@@ -427,13 +471,13 @@ class ExpertStripeService {
       readiness.issues.push(`Expert verification status: ${expert.verificationStatus}`);
     }
 
-    // Check for warnings
-    if (expert.stripeAccountCapabilities?.payouts !== 'active') {
-      readiness.warnings.push('Payouts not enabled; expert may not receive funds');
+    // Check for non-blocking warnings
+    if (!expert.stripePayoutsEnabled) {
+      readiness.warnings.push('Expert has not completed payout bank account setup');
     }
 
-    if (!expert.stripePayoutsEnabled) {
-      readiness.warnings.push('Expert has not completed payout setup');
+    if (!expert.stripeOnboardingComplete) {
+      readiness.warnings.push('Expert onboarding not yet fully complete');
     }
 
     return readiness;
