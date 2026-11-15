@@ -1,6 +1,6 @@
 import mongoose from 'mongoose';
 import request from 'supertest';
-import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
+import { describe, it, expect, beforeAll, afterAll, jest } from '@jest/globals';
 import app from '../app.js';
 import User from '../models/User.js';
 import Expert from '../models/Expert.js';
@@ -60,7 +60,11 @@ describe('Phase 3E - Complete Expert Lifecycle', () => {
 
       expect(response.status).toBe(201);
       expect(response.body.data.verificationStatus).toBe('draft');
-      expect(response.body.data.userId).toBe(testData.expertUserId);
+      // userId is populated as an object, extract the ID if needed
+      const userId = typeof response.body.data.userId === 'object' 
+        ? response.body.data.userId._id 
+        : response.body.data.userId;
+      expect(userId).toBe(testData.expertUserId);
 
       testData.expertId = response.body.data._id;
     });
