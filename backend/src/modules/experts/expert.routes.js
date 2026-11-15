@@ -18,18 +18,15 @@ router.get('/featured', expertController.getFeaturedExperts);
 // Get top-rated experts
 router.get('/top-rated', expertController.getTopRatedExperts);
 
-// Get expert by ID (public)
-router.get('/:id', expertController.getExpertById);
-
 /**
  * Protected Routes (Authenticated Users)
  */
 
-// Create expert profile
-router.post('/', authenticate, expertController.createExpert);
-
 // Get my expert profile
 router.get('/me/profile', authenticate, authorize('expert'), expertController.getMyExpertProfile);
+
+// Create expert profile
+router.post('/', authenticate, expertController.createExpert);
 
 // Update my expert profile
 router.patch('/me', authenticate, authorize('expert'), expertController.updateExpert);
@@ -55,5 +52,12 @@ router.patch('/admin/:id/suspend', authenticate, isAdmin, expertController.suspe
 
 // Reactivate expert
 router.patch('/admin/:id/reactivate', authenticate, isAdmin, expertController.reactivateExpert);
+
+/**
+ * Public Routes (continued - must be after /me and /admin routes)
+ */
+
+// Get expert by ID (public)
+router.get('/:id', expertController.getExpertById);
 
 export default router;

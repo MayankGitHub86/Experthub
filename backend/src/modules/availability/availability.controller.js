@@ -14,11 +14,30 @@ import {
 /**
  * @route   GET /api/v1/experts/:expertId/availability
  * @desc    Get expert availability settings
- * @access  Public
+ * @access  Public (with optional auth for /me)
  */
 export const getAvailability = async (req, res, next) => {
   try {
-    const availability = await availabilityService.getAvailability(req.params.expertId);
+    // If expertId is 'me', get the authenticated user's expert profile
+    let expertId = req.params.expertId;
+    if (expertId === 'me') {
+      if (!req.user) {
+        return res.status(401).json({
+          success: false,
+          message: 'Authentication required',
+        });
+      }
+      const expert = await expertService.getExpertByUserId(req.user.id);
+      if (!expert) {
+        return res.status(404).json({
+          success: false,
+          message: 'Expert profile not found',
+        });
+      }
+      expertId = expert._id;
+    }
+    
+    const availability = await availabilityService.getAvailability(expertId);
     
     res.status(200).json({
       success: true,

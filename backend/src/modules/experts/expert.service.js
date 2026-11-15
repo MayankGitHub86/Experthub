@@ -64,19 +64,17 @@ class ExpertService {
    * Get expert by ID
    */
   async getExpertById(expertId, includePrivate = false) {
-    const query = Expert.findById(expertId).populate('userId', 'firstName lastName email profilePicture timezone');
+    const expert = await Expert.findById(expertId).populate('userId', 'firstName lastName email profilePicture timezone');
     
-    if (!includePrivate) {
-      // Public view - only show approved and public profiles
-      query.where({
-        verificationStatus: 'approved',
-        profilePublic: true,
-      });
-    }
-    
-    const expert = await query;
     if (!expert) {
       throw new AppError('Expert not found', 404);
+    }
+    
+    if (!includePrivate) {
+      // Public view - only show approved and public profiles accepting bookings
+      if (expert.verificationStatus !== 'approved' || !expert.profilePublic || !expert.acceptingBookings) {
+        throw new AppError('Expert profile not available', 404);
+      }
     }
     
     return expert;

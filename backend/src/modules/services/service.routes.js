@@ -21,12 +21,6 @@ router.get('/popular', serviceController.getPopularServices);
 // Get services by category
 router.get('/category/:category', serviceController.getServicesByCategory);
 
-// Get service by ID
-router.get('/:id', serviceController.getServiceById);
-
-// Get expert's services
-router.get('/expert/:expertId', serviceController.getExpertServices);
-
 /**
  * Protected Routes (Expert)
  */
@@ -34,8 +28,22 @@ router.get('/expert/:expertId', serviceController.getExpertServices);
 // Create service
 router.post('/', authenticate, authorize('expert'), serviceController.createService);
 
-// Get my services (including inactive)
+// Get my services (including inactive) - must be before /:id to avoid catching 'me' as an ID
 router.get('/me/all', authenticate, authorize('expert'), serviceController.getMyServices);
+
+/**
+ * Public Routes (continued)
+ */
+
+// Get service by ID
+router.get('/:id', serviceController.getServiceById);
+
+// Get expert's services
+router.get('/expert/:expertId', serviceController.getExpertServices);
+
+/**
+ * Protected Routes (Expert - continued)
+ */
 
 // Update service
 router.patch('/:id', authenticate, authorize('expert'), serviceController.updateService);
