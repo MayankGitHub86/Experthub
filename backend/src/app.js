@@ -13,11 +13,12 @@ import expertRoutes from './modules/experts/expert.routes.js';
 import serviceRoutes from './modules/services/service.routes.js';
 import availabilityRoutes from './modules/availability/availability.routes.js';
 import bookingRoutes from './modules/bookings/booking.routes.js';
+import chatModuleRoutes from './modules/chat/chat.routes.js';
 
 // Import legacy routes (to be refactored)
 import aiRoutes from '../routes/ai.js';
 import paymentRoutes from '../routes/payments.js';
-import chatRoutes from '../routes/chat.js';
+import chatLegacyRoutes from '../routes/chat.js';
 
 /**
  * Express Application Setup
@@ -101,14 +102,15 @@ app.use('/api/v1/experts', ...apiMiddleware, expertRoutes);
 app.use('/api/v1/services', ...apiMiddleware, serviceRoutes);
 app.use('/api/v1', ...apiMiddleware, availabilityRoutes);
 app.use('/api/v1/bookings', ...apiMiddleware, bookingRoutes);
+app.use('/api/v1/chat', ...apiMiddleware, chatModuleRoutes);
 
 // Legacy routes (to be refactored into modules)
 app.use('/api/ai', ...authMiddleware, aiRoutes);
 app.use('/api/payments', ...apiMiddleware, paymentRoutes);
-app.use('/api/chat', ...apiMiddleware, chatRoutes);
+app.use('/api/chat', ...apiMiddleware, chatLegacyRoutes);
 
 // Webhooks (no rate limiting for external services)
-app.use('/webhooks', chatRoutes);
+app.use('/webhooks', chatLegacyRoutes);
 
 // ========================================
 // Error Handling

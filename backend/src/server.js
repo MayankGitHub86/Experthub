@@ -7,6 +7,8 @@ import { logger } from './utils/logger.js';
 import { authenticate as socketAuth } from './middleware/authenticate.js';
 import ReservationUnit from './models/ReservationUnit.js';
 import BookingHold from './models/BookingHold.js';
+import chatService from './modules/chat/chat.service.js';
+import { Conversation, Message } from './models/index.js';
 
 /**
  * Server Entry Point
@@ -75,74 +77,94 @@ io.on('connection', (socket) => {
   // Join user's personal room
   socket.join(`user:${socket.userId}`);
   
-  // Join consultation room with authorization
-  socket.on('join_room', async ({ roomId }) => {
+  // Join conversation room with authorization
+  socket.on('join_conversation', async ({ conversationId }) => {
     try {
-      // TODO: Verify user has access to this room (check booking)
-      // For now, basic check
-      if (!roomId) {
-        return socket.emit('error', { message: 'Room ID required' });
-      }
+      // Verify user is participant
+      const conversation = await chatService.joinConversation(socket.userId, conversationId);
       
-      socket.join(roomId);
-      logger.info(`[Socket] User joined room`, {
+      socket.join(`conversation:${conversationId}`);
+      
+      logger.info(`[Socket] User joined conversation`, {
         userId: socket.userId,
-        roomId,
+        conversationId,
       });
       
-      socket.to(roomId).emit('user_joined', {
-        user: { name: socket.user.name, role: socket.userRole },
+      socket.to(`conversation:${conversationId}`).emit('user_joined', {
+        user: socket.user.firstName + ' ' + socket.user.lastName,
         time: new Date().toISOString(),
       });
     } catch (error) {
-      logger.error('[Socket] Join room error:', error);
-      socket.emit('error', { message: 'Failed to join room' });
+      logger.error('[Socket] Join conversation error:', error);
+      socket.emit('error', { message: error.message });
     }
   });
   
-  // Handle message sending
-  socket.on('send_message', ({ roomId, message }) => {
+  // Handle real-time message - PERSIST TO MONGODB
+  socket.on('send_message', async ({ conversationId, content, type = 'text' }) => {
     try {
-      const enrichedMessage = {
-        id: Date.now() + Math.random(),
-        senderId: socket.userId,
-        senderName: socket.user.name,
-        ...message,
-        timestamp: new Date().toISOString(),
-      };
+      // Verify user is participant and save message
+      const message = await chatService.saveRealTimeMessage(
+        conversationId,
+        socket.userId,
+        content,
+        type
+      );
       
-      // TODO: Save message to database
+      // Broadcast to all participants (message already persisted)
+      io.to(`conversation:${conversationId}`).emit('receive_message', {
+        _id: message._id,
+        id: message._id,
+        senderId: message.senderId._id,
+        sender: message.senderId,
+        senderName: message.senderId.firstName + ' ' + message.senderId.lastName,
+        content: message.content,
+        type: message.type,
+        timestamp: message.createdAt,
+        deliveryStatus: 'sent',
+      });
       
-      // Broadcast to room
-      io.to(roomId).emit('receive_message', enrichedMessage);
-      
-      logger.debug('[Socket] Message sent', {
-        roomId,
+      logger.info('[Socket] Message sent and persisted', {
+        conversationId,
+        messageId: message._id,
         userId: socket.userId,
       });
     } catch (error) {
       logger.error('[Socket] Send message error:', error);
-      socket.emit('error', { message: 'Failed to send message' });
+      socket.emit('error', { message: error.message });
     }
   });
   
-  // Typing indicators
-  socket.on('typing', ({ roomId }) => {
-    socket.to(roomId).emit('user_typing', { user: socket.user.name });
-  });
-  
-  socket.on('stop_typing', ({ roomId }) => {
-    socket.to(roomId).emit('user_stop_typing', { user: socket.user.name });
-  });
-  
-  // WebRTC signaling
-  socket.on('webrtc_signal', ({ roomId, signal }) => {
-    socket.to(roomId).emit('webrtc_signal', {
-      signal,
-      sender: socket.userId,
+  // Handle typing indicators
+  socket.on('typing', ({ conversationId }) => {
+    socket.to(`conversation:${conversationId}`).emit('user_typing', { 
+      user: socket.user.firstName + ' ' + socket.user.lastName,
     });
   });
   
+  socket.on('stop_typing', ({ conversationId }) => {
+    socket.to(`conversation:${conversationId}`).emit('user_stop_typing', { 
+      user: socket.user.firstName + ' ' + socket.user.lastName,
+    });
+  });
+  
+  // Handle mark as read
+  socket.on('mark_read', async ({ conversationId }) => {
+    try {
+      const result = await chatService.markConversationRead(conversationId, socket.userId);
+      
+      logger.info('[Socket] Marked as read', {
+        conversationId,
+        userId: socket.userId,
+        count: result.count,
+      });
+    } catch (error) {
+      logger.error('[Socket] Mark as read error:', error);
+      socket.emit('error', { message: error.message });
+    }
+  });
+  
+  // Handle disconnection
   socket.on('disconnect', () => {
     logger.info(`[Socket] Client disconnected`, {
       socketId: socket.id,
