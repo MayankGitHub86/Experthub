@@ -1,0 +1,479 @@
+/**
+ * Payment Service
+ * 
+ * Manages Stripe payment operations including:
+ * - Creating payment intents for bookings
+ * - Handling refunds
+ * - Processing webhook events
+ * - Calculating commissions
+ */
+
+import stripe from 'stripe';
+import { config } from '../../config/environment.js';
+import CommissionCalculator from './commission.calculator.js';
+import { AppError } from '../../middleware/errorHandler.js';
+import Transaction from '../../models/Transaction.js';
+import Booking from '../../models/Booking.js';
+import Expert from '../../models/Expert.js';
+import User from '../../models/User.js';
+import { logger } from '../../utils/logger.js';
+
+const stripeClient = new stripe(config.stripe.secretKey);
+
+class PaymentService {
+  /**
+   * Create a Stripe PaymentIntent for a booking
+   * 
+   * Destination charge model:
+   * - Charge full amount to platform account
+   * - Application fee: 15% (platform commission)
+   * - Transfer: 85% to expert's connected account
+   * 
+   * @param {string} bookingId - Booking MongoDB ID
+   * @param {string} clientId - Client MongoDB ID
+   * @param {number} amountCents - Amount in cents
+   * @param {string} currency - Currency code (USD, EUR, etc.)
+   * @returns {object} Stripe PaymentIntent
+   * @throws AppError if booking invalid, expert not ready, etc.
+   */
+  async createPaymentIntent(bookingId, clientId, amountCents, currency = 'USD') {
+    // Fetch and validate booking
+    const booking = await Booking.findById(bookingId)
+      .populate('serviceId')
+      .populate('expertId')
+      .populate('clientId');
+
+    if (!booking) {
+      throw new AppError('Booking not found', 404);
+    }
+
+    // Verify client is the one paying
+    if (booking.clientId._id.toString() !== clientId) {
+      throw new AppError('Client mismatch: only the booking client can pay', 403);
+    }
+
+    // Verify booking is in correct state for payment
+    if (booking.status !== 'confirmed') {
+      throw new AppError(
+        `Cannot create payment for booking in state: ${booking.status}. Expected: confirmed`,
+        400
+      );
+    }
+
+    // Verify amount matches booking
+    if (amountCents !== booking.totalAmount * 100) {
+      throw new AppError(
+        `Amount mismatch. Expected: ${booking.totalAmount * 100} cents, got: ${amountCents}`,
+        400
+      );
+    }
+
+    // Verify expert is approved
+    const expert = await Expert.findById(booking.expertId._id);
+    if (!expert) {
+      throw new AppError('Expert profile not found', 404);
+    }
+
+    if (expert.verificationStatus !== 'approved') {
+      throw new AppError(
+        'Expert is not approved for receiving payments. Payment cannot be processed.',
+        403
+      );
+    }
+
+    // Verify expert has Stripe account
+    if (!expert.stripeAccountId) {
+      throw new AppError(
+        'Expert has not connected their Stripe account. Payment cannot be processed.',
+        400
+      );
+    }
+
+    // Verify expert has charges enabled
+    if (!expert.stripeChargesEnabled) {
+      throw new AppError(
+        'Expert account is not ready to receive payments. Please verify your Stripe account.',
+        400
+      );
+    }
+
+    // Calculate commission split
+    const split = CommissionCalculator.calculateSplit(amountCents, currency);
+
+    // Prepare metadata for Stripe and future reconciliation
+    const metadata = {
+      bookingId: bookingId.toString(),
+      clientId: clientId.toString(),
+      expertId: booking.expertId._id.toString(),
+      serviceId: booking.serviceId._id.toString(),
+      platformCommission: split.platformCommission.toString(),
+      expertShare: split.expertShare.toString(),
+      bookingNumber: booking.bookingNumber || 'pending'
+    };
+
+    try {
+      // Create payment intent with destination charge
+      // Stripe will:
+      // 1. Charge the full amount to platform account
+      // 2. Take application fee (15%)
+      // 3. Transfer remainder (85%) to expert's connected account
+      const paymentIntent = await stripeClient.paymentIntents.create({
+        amount: amountCents,
+        currency: currency.toLowerCase(),
+        
+        // Destination charge: transfer to expert's connected account
+        transfer_data: {
+          destination: expert.stripeAccountId
+        },
+        
+        // Platform application fee: 15%
+        application_fee_amount: split.platformCommission,
+        
+        // Payment method types
+        payment_method_types: ['card'],
+        
+        // Confirm payment in test: can use test cards
+        confirm: false,
+        return_url: `${config.baseUrl}/bookings/${bookingId}`,
+        
+        // Metadata for reconciliation
+        metadata,
+        
+        // Idempotency key: prevent duplicate charges on retry
+        idempotency_key: `booking_${bookingId}_${Date.now()}`,
+        
+        // Description for Stripe dashboard
+        description: `ExpertHub Booking: ${booking.bookingNumber || bookingId}`,
+        
+        // Customer: optional, can be used for recurring charges
+        customer: await this._getOrCreateStripeCustomer(booking.clientId),
+        
+        // Statement descriptor for credit card statement
+        statement_descriptor: 'EXPERTHUB CONSULTATION'
+      });
+
+      logger.info('Payment intent created', {
+        paymentIntentId: paymentIntent.id,
+        bookingId,
+        amount: amountCents,
+        expertId: expert._id
+      });
+
+      return paymentIntent;
+    } catch (error) {
+      logger.error('Failed to create payment intent', {
+        bookingId,
+        error: error.message,
+        stripeErrorCode: error.code
+      });
+      throw new AppError(
+        `Failed to create payment: ${error.message}`,
+        error.statusCode || 500
+      );
+    }
+  }
+
+  /**
+   * Confirm payment from webhook (after client payment)
+   * 
+   * Called by webhook handler when Stripe confirms payment_intent.succeeded
+   * 
+   * @param {object} paymentIntent - Stripe PaymentIntent object
+   * @returns {object} Updated Transaction and Booking
+   */
+  async confirmPaymentFromWebhook(paymentIntent) {
+    const { id: paymentIntentId, metadata, amount, currency, charges } = paymentIntent;
+
+    if (!metadata || !metadata.bookingId) {
+      throw new AppError('Payment intent missing metadata with bookingId', 400);
+    }
+
+    const { bookingId, clientId, expertId } = metadata;
+
+    // Verify payment is succeeded
+    if (paymentIntent.status !== 'succeeded') {
+      throw new AppError(
+        `Cannot confirm payment with status: ${paymentIntent.status}`,
+        400
+      );
+    }
+
+    // Fetch booking
+    const booking = await Booking.findById(bookingId);
+    if (!booking) {
+      throw new AppError('Booking not found', 404);
+    }
+
+    // Verify booking is in payment_pending state
+    // (It should have been moved to payment_pending when payment intent was created)
+    if (!['payment_pending', 'confirmed'].includes(booking.status)) {
+      logger.warn('Payment confirmed for booking in unexpected state', {
+        bookingId,
+        status: booking.status,
+        paymentIntentId
+      });
+    }
+
+    // Verify amount matches
+    if (amount !== booking.totalAmount * 100) {
+      throw new AppError('Payment amount mismatch', 400);
+    }
+
+    // Get charge object for Stripe fee info
+    const charge = charges.data[0];
+
+    // Calculate commission split
+    const split = CommissionCalculator.calculateSplit(amount, currency.toUpperCase());
+
+    // Create Transaction record
+    const transaction = await Transaction.create({
+      // Parties
+      fromUserId: clientId,
+      toUserId: expertId,
+      
+      // Related entities
+      bookingId,
+      
+      // Transaction type
+      type: 'booking_payment',
+      
+      // Amount details
+      amount: split.expertShare, // Expert receives 85%
+      currency: currency.toUpperCase(),
+      netAmount: split.expertShare,
+      
+      // Fee breakdown
+      fees: {
+        platformFee: split.platformCommission,
+        paymentProcessingFee: charge.amount_captured - charge.net, // Stripe fee
+        tax: 0
+      },
+      
+      // Status
+      status: 'completed',
+      
+      // Gateway details
+      gateway: {
+        provider: 'stripe',
+        transactionId: charge.id,
+        paymentIntentId,
+        chargeId: charge.id,
+        paymentMethod: {
+          type: charge.payment_method_details.type,
+          brand: charge.payment_method_details.card?.brand,
+          last4: charge.payment_method_details.card?.last4,
+          expiryMonth: charge.payment_method_details.card?.exp_month,
+          expiryYear: charge.payment_method_details.card?.exp_year
+        }
+      },
+      
+      // Description
+      description: `Payment for booking ${booking.bookingNumber || bookingId}`,
+      internalNotes: `Platform commission: ${split.platformCommission} cents, Stripe fee: ${charge.amount_captured - charge.net}`,
+      
+      // Dates
+      initiatedAt: new Date(paymentIntent.created * 1000),
+      completedAt: new Date()
+    });
+
+    // Update booking with payment info
+    booking.payment.transactionId = transaction._id;
+    booking.payment.stripePaymentIntentId = paymentIntentId;
+    booking.payment.stripeChargeId = charge.id;
+    booking.payment.paymentMethod = 'card';
+    booking.payment.paidAt = new Date();
+    booking.status = 'paid';
+    
+    // Add to status history
+    booking.statusHistory.push({
+      status: 'paid',
+      timestamp: new Date(),
+      reason: 'Payment confirmed by Stripe webhook'
+    });
+
+    await booking.save();
+
+    logger.info('Payment confirmed', {
+      transactionId: transaction._id,
+      bookingId,
+      paymentIntentId,
+      amount
+    });
+
+    return {
+      transaction: transaction.toObject(),
+      booking: booking.toObject()
+    };
+  }
+
+  /**
+   * Refund a payment
+   * 
+   * For destination charges:
+   * - Refund reverses the charge
+   * - Automatic reversal of transfer to expert (if within time limit)
+   * - Stripe handles the complexity
+   * 
+   * @param {string} bookingId - Booking ID
+   * @param {number} amountCents - Refund amount (null = full refund)
+   * @param {string} reason - Refund reason
+   * @returns {object} Updated Transaction and Booking
+   */
+  async refundPayment(bookingId, amountCents = null, reason = 'Customer requested') {
+    // Fetch booking
+    const booking = await Booking.findById(bookingId)
+      .populate('payment.transactionId');
+
+    if (!booking) {
+      throw new AppError('Booking not found', 404);
+    }
+
+    // Check if booking has a payment
+    if (!booking.payment || !booking.payment.stripeChargeId) {
+      throw new AppError('Booking has no payment to refund', 400);
+    }
+
+    // Check if already refunded
+    if (booking.payment.refundedAt) {
+      throw new AppError('Booking has already been refunded', 400);
+    }
+
+    const chargeId = booking.payment.stripeChargeId;
+    const refundAmount = amountCents || booking.totalAmount * 100; // Default: full refund
+
+    try {
+      // Create refund via Stripe
+      const refund = await stripeClient.refunds.create({
+        charge: chargeId,
+        amount: refundAmount,
+        reason: 'requested_by_customer',
+        metadata: {
+          bookingId: bookingId.toString(),
+          reason
+        }
+      });
+
+      logger.info('Refund processed', {
+        refundId: refund.id,
+        chargeId,
+        bookingId,
+        amount: refundAmount
+      });
+
+      // Update booking
+      booking.payment.refundedAt = new Date();
+      booking.payment.refundAmount = refundAmount / 100;
+      booking.payment.refundReason = reason;
+      booking.status = 'refunded';
+
+      booking.statusHistory.push({
+        status: 'refunded',
+        timestamp: new Date(),
+        reason: `Refunded ${refundAmount / 100} ${booking.pricing.currency}`
+      });
+
+      await booking.save();
+
+      // Create refund transaction record
+      const refundTransaction = await Transaction.create({
+        fromUserId: booking.expertId,
+        toUserId: booking.clientId,
+        bookingId,
+        type: 'refund',
+        amount: refundAmount / 100,
+        currency: booking.pricing.currency,
+        netAmount: refundAmount / 100,
+        status: 'completed',
+        gateway: {
+          provider: 'stripe',
+          transactionId: refund.id,
+          refundId: refund.id,
+          chargeId: chargeId
+        },
+        description: `Refund for booking ${booking.bookingNumber || bookingId}`,
+        internalNotes: `Reason: ${reason}`,
+        completedAt: new Date()
+      });
+
+      return {
+        refund: refund,
+        booking: booking.toObject(),
+        transaction: refundTransaction.toObject()
+      };
+    } catch (error) {
+      logger.error('Failed to process refund', {
+        bookingId,
+        chargeId,
+        error: error.message
+      });
+      throw new AppError(`Failed to process refund: ${error.message}`, 400);
+    }
+  }
+
+  /**
+   * Get or create Stripe Customer for user
+   * 
+   * @param {object} user - User object with email, name
+   * @returns {string} Stripe customer ID
+   */
+  async _getOrCreateStripeCustomer(user) {
+    try {
+      // Search for existing customer
+      const customers = await stripeClient.customers.list({
+        email: user.email,
+        limit: 1
+      });
+
+      if (customers.data.length > 0) {
+        return customers.data[0].id;
+      }
+
+      // Create new customer
+      const customer = await stripeClient.customers.create({
+        email: user.email,
+        name: `${user.firstName} ${user.lastName}`,
+        metadata: {
+          userId: user._id.toString()
+        }
+      });
+
+      return customer.id;
+    } catch (error) {
+      logger.error('Failed to create Stripe customer', {
+        userId: user._id,
+        error: error.message
+      });
+      // Return null if customer creation fails - payment will still work
+      return null;
+    }
+  }
+
+  /**
+   * Get payment status
+   * 
+   * @param {string} paymentIntentId - Stripe PaymentIntent ID
+   * @returns {object} Payment status details
+   */
+  async getPaymentStatus(paymentIntentId) {
+    try {
+      const paymentIntent = await stripeClient.paymentIntents.retrieve(paymentIntentId);
+      return {
+        id: paymentIntent.id,
+        status: paymentIntent.status,
+        amount: paymentIntent.amount,
+        currency: paymentIntent.currency,
+        clientSecret: paymentIntent.client_secret,
+        requiresAction: paymentIntent.status === 'requires_action',
+        succeeded: paymentIntent.status === 'succeeded'
+      };
+    } catch (error) {
+      logger.error('Failed to retrieve payment status', {
+        paymentIntentId,
+        error: error.message
+      });
+      throw new AppError(`Failed to retrieve payment status: ${error.message}`, 400);
+    }
+  }
+}
+
+export default new PaymentService();

@@ -13,10 +13,10 @@ import expertRoutes from './modules/experts/expert.routes.js';
 import serviceRoutes from './modules/services/service.routes.js';
 import bookingRoutes from './modules/bookings/booking.routes.js';
 import chatModuleRoutes from './modules/chat/chat.routes.js';
+import paymentModuleRoutes from './modules/payments/payment.routes.js';
 
 // Import legacy routes (to be refactored)
 import aiRoutes from '../routes/ai.js';
-import paymentRoutes from '../routes/payments.js';
 import chatLegacyRoutes from '../routes/chat.js';
 
 /**
@@ -101,10 +101,10 @@ app.use('/api/v1/experts', ...apiMiddleware, expertRoutes);
 app.use('/api/v1/services', ...apiMiddleware, serviceRoutes);
 app.use('/api/v1/bookings', ...apiMiddleware, bookingRoutes);
 app.use('/api/v1/chat', ...apiMiddleware, chatModuleRoutes);
+app.use('/api/v1/payments', ...apiMiddleware, paymentModuleRoutes);
 
 // Legacy routes (to be refactored into modules)
 app.use('/api/ai', ...authMiddleware, aiRoutes);
-app.use('/api/payments', ...apiMiddleware, paymentRoutes);
 app.use('/api/chat', ...apiMiddleware, chatLegacyRoutes);
 
 // Webhooks (no rate limiting for external services)
