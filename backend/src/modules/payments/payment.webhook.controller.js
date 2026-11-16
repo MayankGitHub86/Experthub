@@ -155,6 +155,20 @@ export const handleStripeEvent = async (req, res, next) => {
       stack: error.stack
     });
 
+    // Handle MongoDB write conflicts as idempotent (treat as already processed)
+    // This can occur with concurrent webhook events for the same PaymentIntent
+    if (error.message && error.message.includes('Write conflict')) {
+      logger.warn('Write conflict during webhook processing - treating as idempotent', {
+        eventId: req.stripeEvent?.id
+      });
+      return res.status(200).json({
+        success: true,
+        message: 'Event processing conflict resolved (idempotent retry)',
+        eventId: req.stripeEvent?.id,
+        isDuplicate: true
+      });
+    }
+
     // Return 400 for client errors, 500 for server errors
     // Stripe will retry 5xx errors automatically
     const statusCode = error.statusCode || 500;
