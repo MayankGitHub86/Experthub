@@ -17,10 +17,15 @@ import Booking from '../../models/Booking.js';
 import Expert from '../../models/Expert.js';
 import User from '../../models/User.js';
 import { logger } from '../../utils/logger.js';
+import StripeAdapter from '../../utils/stripe.adapter.js';
 
 const stripeClient = new stripe(config.stripe.secretKey);
 
 class PaymentService {
+  constructor(stripeAdapter = null) {
+    // Allow dependency injection for testing
+    this.adapter = stripeAdapter || new StripeAdapter(stripeClient);
+  }
   /**
    * Create a Stripe PaymentIntent for a booking
    * 
@@ -125,12 +130,12 @@ class PaymentService {
     };
 
     try {
-      // Create payment intent with destination charge
+      // Create payment intent with destination charge using adapter
       // Stripe will:
       // 1. Charge the full amount to platform account
       // 2. Take application fee (15%)
       // 3. Transfer remainder (85%) to expert's connected account
-      const paymentIntent = await stripeClient.paymentIntents.create({
+      const paymentIntent = await this.adapter.createPaymentIntent({
         amount: amountCents,
         currency: currency.toLowerCase(),
         
@@ -494,3 +499,6 @@ class PaymentService {
 }
 
 export default new PaymentService();
+
+// Also export the class for testing with dependency injection
+export { PaymentService };

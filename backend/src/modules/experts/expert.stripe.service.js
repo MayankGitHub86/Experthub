@@ -18,10 +18,16 @@ import { AppError } from '../../middleware/errorHandler.js';
 import Expert from '../../models/Expert.js';
 import User from '../../models/User.js';
 import { logger } from '../../utils/logger.js';
+import StripeAdapter from '../../utils/stripe.adapter.js';
 
 const stripeClient = new stripe(config.stripe.secretKey);
 
 class ExpertStripeService {
+  constructor(stripeAdapter = null) {
+    // Allow dependency injection for testing
+    // If no adapter provided, create one with the real Stripe client
+    this.adapter = stripeAdapter || new StripeAdapter(stripeClient);
+  }
   /**
    * Validate Stripe platform configuration
    * 
@@ -160,13 +166,9 @@ class ExpertStripeService {
         ],
       };
 
-      // Use Stripe v2 Core API directly via rawRequest()
+      // Use Stripe v2 Core API directly via adapter
       // The Node SDK's accounts.create() uses v1 endpoint; we need v2 explicitly
-      const account = await stripeClient.rawRequest(
-        'POST',
-        '/v2/core/accounts',
-        accountData
-      );
+      const account = await this.adapter.createAccount(accountData);
 
       // Update expert with Stripe account ID
       expert.stripeAccountId = account.id;
@@ -259,15 +261,15 @@ class ExpertStripeService {
     try {
       // Create account link (Accounts v2)
       // Reference: https://stripe.com/docs/connect/rest-api/account-links/create
-      const accountLink = await stripeClient.accountLinks.create({
-        account: expert.stripeAccountId,
-        type: 'account_onboarding', // or 'account_update' to modify existing
-        return_url: returnUrl || `${config.baseUrl}/api/v1/experts/${expertId}/stripe/onboarding-complete`,
-        refresh_url: `${config.baseUrl}/api/v1/experts/${expertId}/stripe/create-onboarding-link`,
-        
-        // Metadata for tracking
-        collect: 'eventually', // Let Stripe enforce requirements gradually
-      });
+      const accountLink = await this.adapter.createAccountLink(
+        expert.stripeAccountId,
+        {
+          type: 'account_onboarding',
+          return_url: returnUrl || `${config.baseUrl}/api/v1/experts/${expertId}/stripe/onboarding-complete`,
+          refresh_url: `${config.baseUrl}/api/v1/experts/${expertId}/stripe/create-onboarding-link`,
+          collect: 'eventually',
+        }
+      );
 
       logger.info('Created onboarding link', {
         expertId,
@@ -334,13 +336,10 @@ class ExpertStripeService {
 
     try {
       // Fetch account from Stripe v2 API
-      // Use rawRequest to get v2 structure with configuration
-      const account = await stripeClient.rawRequest(
-        'GET',
-        `/v2/core/accounts/${expert.stripeAccountId}`,
-        {},
+      // Use adapter to get v2 structure with configuration
+      const account = await this.adapter.retrieveAccount(
+        expert.stripeAccountId,
         {
-          // Request full response
           query: {
             include: ['configuration.merchant', 'configuration.recipient', 'identity', 'requirements'],
           },
@@ -485,3 +484,6 @@ class ExpertStripeService {
 }
 
 export default new ExpertStripeService();
+
+// Also export the class for testing with dependency injection
+export { ExpertStripeService };
