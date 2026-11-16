@@ -216,6 +216,30 @@ class PaymentService {
       );
     }
 
+    // IDEMPOTENCY CHECK: Verify this webhook hasn't already been processed
+    // Use Stripe charge ID as the idempotency key (guaranteed unique)
+    const chargeId = charges.data[0].id;
+    const existingTransaction = await Transaction.findOne({
+      'gateway.chargeId': chargeId,
+      type: 'booking_payment'
+    });
+
+    if (existingTransaction) {
+      logger.warn('Duplicate webhook received for charge', {
+        chargeId,
+        bookingId,
+        paymentIntentId,
+        transactionId: existingTransaction._id
+      });
+      // Return existing transaction instead of creating duplicate
+      const booking = await Booking.findById(bookingId);
+      return {
+        transaction: existingTransaction.toObject(),
+        booking: booking.toObject(),
+        isDuplicate: true
+      };
+    }
+
     // Fetch booking
     const booking = await Booking.findById(bookingId);
     if (!booking) {

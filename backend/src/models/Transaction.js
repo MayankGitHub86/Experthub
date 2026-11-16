@@ -280,7 +280,10 @@ transactionSchema.pre('save', async function(next) {
     this.failedAt = new Date();
   }
 
-  next();
+  // Only call next if it's a function (defensive check for Mongoose operations)
+  if (typeof next === 'function') {
+    next();
+  }
 });
 
 // Static method: Create booking payment transaction
