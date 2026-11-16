@@ -343,7 +343,8 @@ serviceSchema.statics.findActiveServices = function(filters = {}) {
     status: 'approved',
     ...filters 
   })
-    .populate('expertId', 'firstName lastName profilePicture expert.averageRating expert.totalReviews')
+    .populate('expertId', 'userId headline hourlyRate stats.averageRating stats.totalBookings')
+    .populate('expertId.userId', 'firstName lastName profilePicture')
     .sort({ featured: -1, 'stats.averageRating': -1, createdAt: -1 });
 };
 
@@ -358,7 +359,8 @@ serviceSchema.statics.searchServices = function(query, filters = {}) {
 
   return this.find(searchQuery, { score: { $meta: 'textScore' } })
     .sort({ score: { $meta: 'textScore' }, 'stats.averageRating': -1 })
-    .populate('expertId', 'firstName lastName profilePicture expert.averageRating expert.totalReviews');
+    .populate('expertId', 'userId headline hourlyRate stats.averageRating stats.totalBookings')
+    .populate('expertId.userId', 'firstName lastName profilePicture');
 };
 
 // Static method: Get featured services
@@ -370,7 +372,8 @@ serviceSchema.statics.getFeaturedServices = function(limit = 10) {
   })
     .sort({ 'stats.averageRating': -1, 'stats.totalBookings': -1 })
     .limit(limit)
-    .populate('expertId', 'firstName lastName profilePicture expert.averageRating expert.totalReviews');
+    .populate('expertId', 'userId headline hourlyRate stats.averageRating stats.totalBookings')
+    .populate('expertId.userId', 'firstName lastName profilePicture');
 };
 
 // Static method: Get services by category
@@ -382,7 +385,8 @@ serviceSchema.statics.getByCategory = function(category, limit = 20) {
   })
     .sort({ featured: -1, 'stats.averageRating': -1 })
     .limit(limit)
-    .populate('expertId', 'firstName lastName profilePicture expert.averageRating expert.totalReviews');
+    .populate('expertId', 'userId headline hourlyRate stats.averageRating stats.totalBookings')
+    .populate('expertId.userId', 'firstName lastName profilePicture');
 };
 
 // Instance method: Check if expert can handle booking
