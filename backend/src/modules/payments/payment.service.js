@@ -77,7 +77,7 @@ class PaymentService {
     }
 
     // Verify expert is approved
-    const expert = await Expert.findById(booking.expertId._id);
+    const expert = await Expert.findById(booking.expertId);
     if (!expert) {
       throw new AppError('Expert profile not found', 404);
     }

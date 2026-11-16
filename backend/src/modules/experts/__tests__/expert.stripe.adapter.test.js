@@ -417,8 +417,11 @@ describe('Expert Stripe Adapter - Accounts v2 Contract Verification', () => {
     });
 
     it('blocks if no Stripe account', async () => {
-      testExpert.stripeAccountId = null;
-      await testExpert.save();
+      // Use $unset to avoid sparse unique index conflict
+      await Expert.updateOne(
+        { _id: testExpert._id },
+        { $unset: { stripeAccountId: "" } }
+      );
 
       const readiness = await service.checkPaymentReadiness(testExpert._id);
       expect(readiness.ready).toBe(false);

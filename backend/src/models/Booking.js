@@ -10,7 +10,7 @@ const bookingSchema = new mongoose.Schema({
   },
   expertId: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
+    ref: 'Expert',
     required: true,
     index: true
   },
@@ -281,7 +281,7 @@ bookingSchema.virtual('client', {
 
 // Virtual for expert details
 bookingSchema.virtual('expert', {
-  ref: 'User',
+  ref: 'Expert',
   localField: 'expertId',
   foreignField: '_id',
   justOne: true
