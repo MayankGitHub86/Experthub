@@ -289,25 +289,21 @@ async function commitTransactionWithRetry(session, eventId, maxRetries) {
 /**
  * Detect if an error is UnknownTransactionCommitResult specifically
  * 
- * This error means: "The driver doesn't know if the transaction was committed"
+ * This error LABEL means: "The driver doesn't know if the transaction was committed"
  * Requires retry of commitTransaction() on the SAME session, not restart
+ * 
+ * IMPORTANT: This is an ERROR LABEL, not an error code.
+ * MongoDB error code 256 is "TransactionCommitted" (transaction WAS committed),
+ * which is different from UnknownTransactionCommitResult.
+ * 
+ * Only the error label indicates "unknown outcome during commit" which requires retry.
  */
 function isUnknownTransactionCommitResult(error) {
   if (!error) return false;
 
-  // Check error labels first (preferred method)
+  // Only check error labels (MongoDB driver standard)
+  // Do NOT use error code 256 as fallback - that's TransactionCommitted, not unknown result
   if (error.errorLabels && error.errorLabels.includes('UnknownTransactionCommitResult')) {
-    return true;
-  }
-
-  // Fallback to error code 256
-  if (error.code === 256) {
-    return true;
-  }
-
-  // Fallback to message pattern
-  const message = error.message || '';
-  if (message.includes('UnknownTransactionCommitResult')) {
     return true;
   }
 
