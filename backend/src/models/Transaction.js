@@ -257,8 +257,9 @@ transactionSchema.virtual('isRefundable').get(function() {
          !this.refund.refundedAt;
 });
 
-// Pre-save middleware
-transactionSchema.pre('save', async function(next) {
+// Pre-save middleware (Mongoose 9 async/promise pattern)
+// No callback parameter; uses native async/await
+transactionSchema.pre('save', async function() {
   // Generate transaction number
   if (this.isNew && !this.transactionNumber) {
     const count = await mongoose.model('Transaction').countDocuments();
@@ -280,10 +281,7 @@ transactionSchema.pre('save', async function(next) {
     this.failedAt = new Date();
   }
 
-  // Only call next if it's a function (defensive check for Mongoose operations)
-  if (typeof next === 'function') {
-    next();
-  }
+  // Implicit return; Mongoose handles continuation
 });
 
 // Static method: Create booking payment transaction

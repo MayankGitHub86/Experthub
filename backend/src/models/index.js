@@ -13,6 +13,7 @@ import Conversation from './Conversation.js';
 import Message from './Message.js';
 import Review from './Review.js';
 import Transaction from './Transaction.js';
+import StripeEvent from './StripeEvent.js';
 
 export {
   User,
@@ -24,5 +25,6 @@ export {
   Conversation,
   Message,
   Review,
-  Transaction
+  Transaction,
+  StripeEvent
 };

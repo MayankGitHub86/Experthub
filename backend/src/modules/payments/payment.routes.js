@@ -10,6 +10,7 @@ import {
   getPaymentStatus,
   refundPayment
 } from './payment.controller.js';
+import { handleStripeEvent } from './payment.webhook.controller.js';
 import { authenticate } from '../../middleware/authenticate.js';
 import { isAdmin } from '../../middleware/authorize.js';
 

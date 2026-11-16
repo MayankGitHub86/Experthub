@@ -194,12 +194,14 @@ class PaymentService {
   /**
    * Confirm payment from webhook (after client payment)
    * 
-   * Called by webhook handler when Stripe confirms payment_intent.succeeded
+   * Called by webhook handler when Stripe confirms payment_intent.succeeded.
+   * Processes within a MongoDB transaction for atomicity when session is provided.
    * 
    * @param {object} paymentIntent - Stripe PaymentIntent object
+   * @param {ClientSession} session - Optional MongoDB session for transactional operations
    * @returns {object} Updated Transaction and Booking
    */
-  async confirmPaymentFromWebhook(paymentIntent) {
+  async confirmPaymentFromWebhook(paymentIntent, session) {
     const { id: paymentIntentId, metadata, amount, currency, charges } = paymentIntent;
 
     if (!metadata || !metadata.bookingId) {
@@ -216,44 +218,62 @@ class PaymentService {
       );
     }
 
-    // IDEMPOTENCY CHECK: Verify this webhook hasn't already been processed
-    // Use Stripe charge ID as the idempotency key (guaranteed unique)
-    const chargeId = charges.data[0].id;
-    const existingTransaction = await Transaction.findOne({
-      'gateway.chargeId': chargeId,
-      type: 'booking_payment'
-    });
-
-    if (existingTransaction) {
-      logger.warn('Duplicate webhook received for charge', {
-        chargeId,
-        bookingId,
-        paymentIntentId,
-        transactionId: existingTransaction._id
-      });
-      // Return existing transaction instead of creating duplicate
-      const booking = await Booking.findById(bookingId);
-      return {
-        transaction: existingTransaction.toObject(),
-        booking: booking.toObject(),
-        isDuplicate: true
-      };
+    // Verify charges array exists and has data
+    if (!charges || !charges.data || charges.data.length === 0) {
+      throw new AppError('No charges found in payment intent', 400);
     }
 
-    // Fetch booking
-    const booking = await Booking.findById(bookingId);
+    const charge = charges.data[0];
+    const chargeId = charge.id;
+
+    // Fetch booking (optionally within transaction)
+    let bookingQuery = Booking.findById(bookingId);
+    if (session) {
+      bookingQuery = bookingQuery.session(session);
+    }
+    const booking = await bookingQuery;
     if (!booking) {
       throw new AppError('Booking not found', 404);
     }
 
-    // Verify booking is in payment_pending state
-    // (It should have been moved to payment_pending when payment intent was created)
+    // Verify booking is in appropriate state (not already paid)
+    if (booking.payment?.paidAt) {
+      // For true duplicates (same chargeId), this is expected - return existing transaction
+      // Check if this is actually a duplicate by matching charge ID
+      if (booking.payment.stripeChargeId === chargeId) {
+        logger.warn('Duplicate webhook: booking already paid with same charge ID', {
+          bookingId,
+          paymentIntentId,
+          chargeId,
+          paidAt: booking.payment.paidAt
+        });
+        // Return existing transaction
+        const existingTransaction = await Transaction.findById(booking.payment.transactionId);
+        return {
+          transaction: existingTransaction.toObject(),
+          booking: booking.toObject(),
+          isDuplicate: true
+        };
+      }
+
+      // If different charge ID but booking already paid, this is an error
+      logger.error('Attempted to pay already-paid booking with different charge', {
+        bookingId,
+        paymentIntentId,
+        previousChargeId: booking.payment.stripeChargeId,
+        newChargeId: chargeId
+      });
+      throw new AppError('Booking payment already confirmed', 400);
+    }
+
+    // Verify booking status allows payment confirmation
     if (!['payment_pending', 'confirmed'].includes(booking.status)) {
       logger.warn('Payment confirmed for booking in unexpected state', {
         bookingId,
         status: booking.status,
         paymentIntentId
       });
+      // Continue anyway; booking may be in other valid states
     }
 
     // Verify amount matches
@@ -265,14 +285,19 @@ class PaymentService {
       );
     }
 
-    // Get charge object for Stripe fee info
-    const charge = charges.data[0];
+    // Verify currency matches
+    if (currency.toUpperCase() !== booking.pricing.currency) {
+      throw new AppError(
+        `Currency mismatch. Expected: ${booking.pricing.currency}, got: ${currency.toUpperCase()}`,
+        400
+      );
+    }
 
     // Calculate commission split
     const split = CommissionCalculator.calculateSplit(amount, currency.toUpperCase());
 
-    // Create Transaction record
-    const transaction = await Transaction.create({
+    // Create Transaction record (optionally within transaction)
+    const transactionData = [{
       // Parties
       fromUserId: clientId,
       toUserId: expertId,
@@ -320,7 +345,10 @@ class PaymentService {
       // Dates
       initiatedAt: new Date(paymentIntent.created * 1000),
       completedAt: new Date()
-    });
+    }];
+
+    const transactionOptions = session ? { session } : {};
+    const transaction = (await Transaction.create(transactionData, transactionOptions))[0];
 
     // Update booking with payment info
     booking.payment.transactionId = transaction._id;
@@ -337,7 +365,8 @@ class PaymentService {
       reason: 'Payment confirmed by Stripe webhook'
     });
 
-    await booking.save();
+    const saveOptions = session ? { session } : {};
+    await booking.save(saveOptions);
 
     logger.info('Payment confirmed', {
       transactionId: transaction._id,

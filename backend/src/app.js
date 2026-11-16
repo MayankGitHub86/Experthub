@@ -6,6 +6,8 @@ import config from './config/environment.js';
 import { logger } from './utils/logger.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import { apiLimiter, authLimiter } from './middleware/rateLimiter.js';
+import { verifyStripeSignature } from './middleware/stripeWebhook.js';
+import { handleStripeEvent } from './modules/payments/payment.webhook.controller.js';
 
 // Import routes
 import authRoutes from './modules/auth/auth.routes.js';
@@ -56,6 +58,16 @@ app.use(cors({
 // Parsing Middleware
 // ========================================
 
+// IMPORTANT: Stripe webhook endpoint must use raw body for signature verification
+// Register BEFORE express.json() so that Stripe-Signature verification middleware can access raw bytes
+app.post(
+  '/webhooks/stripe/events',
+  express.raw({ type: 'application/json', limit: '10mb' }),
+  verifyStripeSignature,
+  handleStripeEvent
+);
+
+// General JSON and URL-encoded body parsing for other routes
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser());

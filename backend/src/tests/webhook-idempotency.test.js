@@ -98,6 +98,7 @@ describe('Webhook Idempotency & Payment Lifecycle', () => {
 
   it('invalid webhook (non-succeeded status) does not mark as paid', async () => {
     const booking = await Booking.create({
+      bookingNumber: `BK${Date.now()}${Math.random()}`,
       clientId: clientUser._id,
       expertId: expert._id,
       serviceId: service._id,
@@ -152,6 +153,7 @@ describe('Webhook Idempotency & Payment Lifecycle', () => {
 
   it('valid succeeded webhook marks booking as paid and sets paidAt', async () => {
     const booking = await Booking.create({
+      bookingNumber: `BK${Date.now()}${Math.random()}`,
       clientId: clientUser._id,
       expertId: expert._id,
       serviceId: service._id,
@@ -236,6 +238,7 @@ describe('Webhook Idempotency & Payment Lifecycle', () => {
 
   it('duplicate webhook (same charge ID) does not create duplicate transaction', async () => {
     const booking = await Booking.create({
+      bookingNumber: `BK${Date.now()}${Math.random()}`,
       clientId: clientUser._id,
       expertId: expert._id,
       serviceId: service._id,
@@ -327,6 +330,7 @@ describe('Webhook Idempotency & Payment Lifecycle', () => {
 
   it('distinct valid events are not rejected by idempotency check', async () => {
     const booking = await Booking.create({
+      bookingNumber: `BK${Date.now()}${Math.random()}`,
       clientId: clientUser._id,
       expertId: expert._id,
       serviceId: service._id,
