@@ -329,13 +329,8 @@ bookingSchema.virtual('canCancel').get(function() {
   return hoursUntil > 0; // Service-specific cancellation hours checked in method
 });
 
-// Pre-save middleware
-bookingSchema.pre('save', async function(next) {
-  // Handle case where next might not be a function (e.g., during transactions)
-  if (typeof next !== 'function') {
-    return;
-  }
-  
+// Pre-save middleware (Mongoose 9 async pattern)
+bookingSchema.pre('save', async function() {
   // Calculate end time
   if (this.isModified('scheduledAt') || this.isModified('duration')) {
     this.endTime = new Date(this.scheduledAt.getTime() + this.duration * 60000);
@@ -354,24 +349,16 @@ bookingSchema.pre('save', async function(next) {
       + this.pricing.taxAmount 
       - this.pricing.discountAmount;
   }
-
-  next();
 });
 
-// Pre-save: Add status to history
-bookingSchema.pre('save', function(next) {
-  // Handle case where next might not be a function
-  if (typeof next !== 'function') {
-    return;
-  }
-  
+// Pre-save: Add status to history (Mongoose 9 async pattern)
+bookingSchema.pre('save', async function() {
   if (this.isModified('status')) {
     this.statusHistory.push({
       status: this.status,
       timestamp: new Date()
     });
   }
-  next();
 });
 
 // Static method: Check for double booking
