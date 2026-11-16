@@ -29,11 +29,12 @@ import { logger } from '../../utils/logger.js';
  * @param {Function} next - Express next middleware
  */
 export const handleStripeEvent = async (req, res, next) => {
-  // Retry logic for transient transaction errors
-  const MAX_RETRIES = 3;
-  let retryCount = 0;
+  // Separate retry logic for transient vs commit-outcome errors
+  const MAX_TRANSIENT_RETRIES = 3;
+  const MAX_COMMIT_RETRIES = 3;
+  let transientRetryCount = 0;
 
-  while (retryCount < MAX_RETRIES) {
+  while (transientRetryCount < MAX_TRANSIENT_RETRIES) {
     const session = await mongoose.connection.startSession();
     session.startTransaction();
 
@@ -42,6 +43,7 @@ export const handleStripeEvent = async (req, res, next) => {
 
       if (!stripeEvent || !stripeEvent.id) {
         await session.abortTransaction();
+        await session.endSession();
         return res.status(400).json({
           success: false,
           message: 'Invalid Stripe event structure'
@@ -54,7 +56,7 @@ export const handleStripeEvent = async (req, res, next) => {
         eventId,
         eventType,
         objectType: data?.object?.object,
-        retryAttempt: retryCount + 1
+        transientRetryAttempt: transientRetryCount + 1
       });
 
       // Check if this event has already been processed (idempotency)
@@ -141,8 +143,8 @@ export const handleStripeEvent = async (req, res, next) => {
       }
       await eventRecord.save({ session });
 
-      // Commit transaction
-      await session.commitTransaction();
+      // Attempt to commit with UnknownTransactionCommitResult retry
+      await commitTransactionWithRetry(session, eventId, MAX_COMMIT_RETRIES);
 
       logger.info('Stripe webhook event processed successfully', {
         eventId,
@@ -161,91 +163,188 @@ export const handleStripeEvent = async (req, res, next) => {
       return; // Success - exit retry loop
 
     } catch (error) {
-      await session.abortTransaction();
-      await session.endSession();
-
-      const isTransientError = isTransientTransactionError(error);
       const eventId = req.stripeEvent?.id;
+      const commitOutcomeError = isUnknownTransactionCommitResult(error);
+      const transientError = isTransientTransactionError(error);
 
-      if (isTransientError && retryCount < MAX_RETRIES - 1) {
-        retryCount++;
-        const backoffMs = Math.pow(2, retryCount) * 100; // Exponential backoff: 200ms, 400ms, 800ms
-        logger.warn('Transient transaction error - retrying', {
+      // Path A: TransientTransactionError - Restart entire transaction with new session
+      if (transientError && !commitOutcomeError && transientRetryCount < MAX_TRANSIENT_RETRIES - 1) {
+        await session.abortTransaction();
+        await session.endSession();
+        
+        transientRetryCount++;
+        const backoffMs = Math.pow(2, transientRetryCount) * 100;
+        logger.warn('Transient transaction error - restarting entire transaction', {
           eventId,
           errorCode: error.code,
-          retryAttempt: retryCount,
+          errorLabels: error.errorLabels,
+          transientRetryAttempt: transientRetryCount,
           backoffMs
         });
         await new Promise(resolve => setTimeout(resolve, backoffMs));
-        continue; // Retry the transaction
+        continue; // Restart: NEW session, NEW transaction
       }
 
-      // Either not a transient error, or retries exhausted
+      // Path B: UnknownTransactionCommitResult or other errors - Handle post-retry
+      await session.abortTransaction();
+      await session.endSession();
+
       logger.error('Failed to process Stripe webhook event', {
         error: error.message,
         errorCode: error.code,
-        isTransient: isTransientError,
+        errorLabels: error.errorLabels,
         eventId,
-        retryAttempt: retryCount
+        isTransient: transientError,
+        isCommitOutcome: commitOutcomeError,
+        transientRetryAttempt: transientRetryCount
       });
 
-      // If transient error after max retries, check if settlement was actually committed
-      if (isTransientError) {
-        const settledEvent = await checkIfSettlementCommitted(eventId);
+      // After all retries exhausted, check if settlement was actually committed
+      if (commitOutcomeError || transientError) {
+        const settledEvent = await checkIfSettlementCommitted(eventId, req.stripeEvent?.data?.object?.id);
         if (settledEvent) {
-          logger.info('Settlement verified as committed after transient errors', {
+          logger.info('Settlement verified as committed after error retries', {
             eventId,
             settlementEventId: settledEvent.stripeEventId
           });
           return res.status(200).json({
             success: true,
-            message: 'Settlement confirmed via committed settlement state (after transient errors)',
+            message: 'Settlement confirmed via committed settlement state',
             eventId,
             isDuplicate: true
           });
         }
       }
 
-      // Return 400 for client errors, 503 for transient server errors (triggers Stripe retry)
-      const statusCode = error.statusCode || (isTransientError ? 503 : 500);
+      // Return 400 for client errors, 503 for transient server errors
+      const statusCode = error.statusCode || (transientError || commitOutcomeError ? 503 : 500);
       res.status(statusCode).json({
         success: false,
         message: error.message || 'Failed to process webhook event',
-        isTransient: isTransientError
+        isTransient: transientError
       });
       return;
     }
   }
+
+  // Should not reach here, but handle gracefully
+  res.status(503).json({
+    success: false,
+    message: 'Failed to process webhook event after maximum retries'
+  });
 };
 
 /**
- * Detect if an error is a transient MongoDB transaction error that should be retried
+ * Attempt to commit a transaction, with specific handling for UnknownTransactionCommitResult
+ * 
+ * UnknownTransactionCommitResult (error code 256) means: "We don't know if the transaction was committed"
+ * The correct behavior is to retry commitTransaction() on the SAME session, not abort and restart.
+ * 
+ * @param {ClientSession} session - Active transaction session
+ * @param {string} eventId - Stripe event ID for logging
+ * @param {number} maxRetries - Max commit retry attempts
+ */
+async function commitTransactionWithRetry(session, eventId, maxRetries) {
+  let commitRetryCount = 0;
+
+  while (commitRetryCount < maxRetries) {
+    try {
+      await session.commitTransaction();
+      logger.info('Transaction committed successfully', {
+        eventId,
+        commitRetryAttempt: commitRetryCount + 1
+      });
+      return; // Success
+    } catch (commitError) {
+      // Check if this is UnknownTransactionCommitResult
+      if (isUnknownTransactionCommitResult(commitError) && commitRetryCount < maxRetries - 1) {
+        commitRetryCount++;
+        const backoffMs = Math.pow(2, commitRetryCount) * 100;
+        logger.warn('Unknown transaction commit result - retrying commit on SAME session', {
+          eventId,
+          errorCode: commitError.code,
+          errorLabels: commitError.errorLabels,
+          commitRetryAttempt: commitRetryCount,
+          backoffMs
+        });
+        await new Promise(resolve => setTimeout(resolve, backoffMs));
+        continue; // Retry commit on same session
+      }
+
+      // Either not UnknownTransactionCommitResult, or retries exhausted
+      logger.error('Transaction commit failed', {
+        eventId,
+        errorCode: commitError.code,
+        errorLabels: commitError.errorLabels,
+        isCommitOutcomeError: isUnknownTransactionCommitResult(commitError),
+        commitRetryAttempt: commitRetryCount
+      });
+
+      // Re-throw to be caught by outer handler
+      throw commitError;
+    }
+  }
+}
+
+/**
+ * Detect if an error is UnknownTransactionCommitResult specifically
+ * 
+ * This error means: "The driver doesn't know if the transaction was committed"
+ * Requires retry of commitTransaction() on the SAME session, not restart
+ */
+function isUnknownTransactionCommitResult(error) {
+  if (!error) return false;
+
+  // Check error labels first (preferred method)
+  if (error.errorLabels && error.errorLabels.includes('UnknownTransactionCommitResult')) {
+    return true;
+  }
+
+  // Fallback to error code 256
+  if (error.code === 256) {
+    return true;
+  }
+
+  // Fallback to message pattern
+  const message = error.message || '';
+  if (message.includes('UnknownTransactionCommitResult')) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Detect if an error is a transient MongoDB transaction error that should retry the entire transaction
  * 
  * Transient errors include:
  * - Write conflicts (concurrent operations on same document)
  * - Snapshot errors (transaction cannot be read at that snapshot)
  * - Lock timeout
  * - Network errors during transaction
+ * 
+ * These errors require restarting the ENTIRE transaction with a NEW session, not commit retry
  */
 function isTransientTransactionError(error) {
   if (!error) return false;
 
+  // Check error labels first (preferred method)
+  if (error.errorLabels && error.errorLabels.includes('TransientTransactionError')) {
+    return true;
+  }
+
   const message = error.message || '';
   const code = error.code;
 
-  // MongoDB transaction-specific error codes
+  // MongoDB transaction-specific error codes (excluding 256 which is commit-specific)
   const transientCodes = [
     251, // NoSuchTransaction
     252, // InvalidTransactionNumber
-    256, // UnknownTransactionCommitResult
     269, // TransactionAbortedDueToAtomicityConstraint
     30, // DuplicateKey (sometimes transient in multi-doc transactions)
   ];
 
   // Write conflicts often manifest as:
-  // - "Write conflict"
-  // - "WriteConflict"
-  // - "WriteConflict during replicated write to *"
   const transientMessages = [
     'Write conflict',
     'WriteConflict',
@@ -271,41 +370,94 @@ function isTransientTransactionError(error) {
 /**
  * Check if a settlement event was actually committed to the database
  * Call this OUTSIDE a transaction context to verify committed state
+ * 
+ * Verifies:
+ * - Exact Stripe PaymentIntent ID
+ * - Expected Booking exists and has payment recorded
+ * - Correct amount and currency
+ * - Actual financial Transaction record exists
+ * 
+ * @param {string} eventId - Stripe event ID being processed
+ * @param {string} paymentIntentId - Stripe PaymentIntent ID (from event)
+ * @returns {object|null} StripeEvent if settlement confirmed, null otherwise
  */
-async function checkIfSettlementCommitted(eventId) {
-  if (!eventId) return null;
+async function checkIfSettlementCommitted(eventId, paymentIntentId) {
+  if (!eventId || !paymentIntentId) {
+    logger.warn('Settlement verification called without required IDs', { eventId, paymentIntentId });
+    return null;
+  }
 
   // Check 1: Was the StripeEvent itself persisted with 'processed' status?
   const event = await StripeEvent.findOne({
     stripeEventId: eventId,
+    'stripeObject.objectId': paymentIntentId, // ← Verify exact PaymentIntent
     processingStatus: 'processed'
   });
 
   if (!event) {
-    logger.warn('Settlement event not found in committed state', { eventId });
+    logger.warn('Settlement event not found in committed state', { eventId, paymentIntentId });
     return null;
   }
 
   logger.info('Settlement event found in committed state', {
     eventId,
+    paymentIntentId,
     transactionId: event.transactionId,
     bookingId: event.bookingId
   });
 
-  // Additional verification: Check if the Transaction was actually created
+  // Check 2: Associated Transaction exists with correct details
   if (event.transactionId) {
     const transaction = await Transaction.findById(event.transactionId);
     if (!transaction) {
       logger.error('Settlement event claims transaction but Transaction not found', {
         eventId,
+        paymentIntentId,
         transactionId: event.transactionId
       });
       return null; // Event exists but Transaction missing = data corruption
     }
+
+    // Verify transaction is actually a payment settlement (not something else)
+    if (transaction.type !== 'booking_payment' || transaction.status !== 'completed') {
+      logger.error('Settlement transaction has unexpected type or status', {
+        eventId,
+        paymentIntentId,
+        transactionId: event.transactionId,
+        type: transaction.type,
+        status: transaction.status
+      });
+      return null;
+    }
+
+    // Verify booking is linked and paid
+    if (event.bookingId) {
+      const booking = await Booking.findById(event.bookingId);
+      if (!booking) {
+        logger.error('Settlement event references non-existent Booking', {
+          eventId,
+          paymentIntentId,
+          bookingId: event.bookingId
+        });
+        return null;
+      }
+
+      // Verify booking is marked as paid
+      if (booking.status !== 'paid' || !booking.payment?.paidAt) {
+        logger.error('Settlement event references Booking that is not marked as paid', {
+          eventId,
+          paymentIntentId,
+          bookingId: event.bookingId,
+          bookingStatus: booking.status,
+          hasPaidAt: !!booking.payment?.paidAt
+        });
+        return null;
+      }
+    }
   }
 
-  return event;
-};
+  return event; // Settlement IS verified as committed with all checks passed
+}
 
 /**
  * Handle payment_intent.succeeded event
