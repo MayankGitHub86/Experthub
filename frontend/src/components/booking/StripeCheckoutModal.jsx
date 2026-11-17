@@ -1,56 +1,198 @@
-import React, { useState } from 'react';
-import { X, Lock, CheckCircle2, CreditCard, Shield, ArrowRight, Loader2 } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { loadStripe } from '@stripe/stripe-js';
+import {
+  Elements,
+  PaymentElement,
+  useStripe,
+  useElements,
+} from '@stripe/react-stripe-js';
+import { X, Lock, CheckCircle2, Shield, ArrowRight, Loader2 } from 'lucide-react';
 import confetti from 'canvas-confetti';
+import paymentsAPI from '../../api/payments.js';
 
-export default function StripeCheckoutModal({ bookingDetails, onClose, onBookingSuccess }) {
+// Initialize Stripe (use environment variable for publishable key)
+const stripePromise = loadStripe(
+  import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || 'pk_test_51234567890'
+);
+
+/**
+ * Payment form component that handles the actual Stripe payment
+ */
+function StripePaymentForm({ bookingDetails, onSuccess, onError, onProcessing }) {
+  const stripe = useStripe();
+  const elements = useElements();
   const [isProcessing, setIsProcessing] = useState(false);
+  const [errorMessage, setErrorMessage] = useState(null);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+
+    if (!stripe || !elements) {
+      return;
+    }
+
+    setIsProcessing(true);
+    onProcessing(true);
+    setErrorMessage(null);
+
+    try {
+      // Confirm the payment with Stripe
+      const { error, paymentIntent } = await stripe.confirmPayment({
+        elements,
+        confirmParams: {
+          return_url: `${window.location.origin}/booking-confirmation`,
+        },
+      });
+
+      if (error) {
+        setErrorMessage(error.message);
+        onError(error.message);
+        setIsProcessing(false);
+        onProcessing(false);
+      } else if (paymentIntent.status === 'succeeded') {
+        // Payment succeeded
+        onSuccess(paymentIntent);
+        setIsProcessing(false);
+        onProcessing(false);
+      }
+    } catch (err) {
+      setErrorMessage(err.message || 'Payment processing failed');
+      onError(err.message);
+      setIsProcessing(false);
+      onProcessing(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit}>
+      <PaymentElement />
+      {errorMessage && (
+        <div style={{
+          marginTop: '12px',
+          padding: '12px',
+          borderRadius: '8px',
+          backgroundColor: 'rgba(239, 68, 68, 0.1)',
+          border: '1px solid rgb(239, 68, 68)',
+          color: 'rgb(239, 68, 68)',
+          fontSize: '13px'
+        }}>
+          {errorMessage}
+        </div>
+      )}
+      <button
+        type="submit"
+        disabled={isProcessing || !stripe || !elements}
+        className="btn-pro"
+        style={{ width: '100%', padding: '12px', fontSize: '14px', marginTop: '16px' }}
+      >
+        {isProcessing ? (
+          <>
+            <Loader2 size={16} className="animate-spin" />
+            <span>Processing Payment...</span>
+          </>
+        ) : (
+          <>
+            <Lock size={15} />
+            <span>Pay ${(bookingDetails.totalAmount / 100).toFixed(2)} with Stripe</span>
+          </>
+        )}
+      </button>
+    </form>
+  );
+}
+
+/**
+ * Main Stripe checkout modal component
+ */
+export default function StripeCheckoutModal({ bookingDetails, onClose, onBookingSuccess }) {
+  const [clientSecret, setClientSecret] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
   const [isSuccess, setIsSuccess] = useState(false);
-  const [cardNumber, setCardNumber] = useState('4242 •••• •••• 4242');
-  const [expiry, setExpiry] = useState('08/28');
-  const [cvc, setCvc] = useState('884');
-  const [zip, setZip] = useState('94103');
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [error, setError] = useState(null);
+  const [successDetails, setSuccessDetails] = useState(null);
 
   if (!bookingDetails) return null;
 
-  const totalAmount = bookingDetails.package?.price || 280;
+  const totalAmount = bookingDetails.totalAmount; // Amount in cents
+  const displayAmount = (totalAmount / 100).toFixed(2);
   const platformFee = Math.round(totalAmount * 0.15);
   const expertPayout = totalAmount - platformFee;
 
-  const handlePay = (e) => {
-    e.preventDefault();
-    setIsProcessing(true);
-
-    setTimeout(() => {
-      setIsProcessing(false);
-      setIsSuccess(true);
+  /**
+   * Initialize payment intent when component mounts
+   */
+  useEffect(() => {
+    const initializePayment = async () => {
       try {
-        confetti({
-          particleCount: 80,
-          spread: 70,
-          origin: { y: 0.6 }
-        });
+        setIsLoading(true);
+        const intentData = await paymentsAPI.createIntent(
+          bookingDetails.bookingId,
+          totalAmount,
+          bookingDetails.currency || 'USD'
+        );
+
+        setClientSecret(intentData.clientSecret);
+        setError(null);
       } catch (err) {
-        // Fallback if canvas is not present
+        setError(err.response?.data?.message || 'Failed to initialize payment. Please try again.');
+        console.error('Payment initialization error:', err);
+      } finally {
+        setIsLoading(false);
       }
-    }, 1200);
+    };
+
+    initializePayment();
+  }, [bookingDetails.bookingId, totalAmount]);
+
+  const handlePaymentSuccess = async (paymentIntent) => {
+    try {
+      // Verify payment status from backend
+      const status = await paymentsAPI.getPaymentStatus(paymentIntent.id);
+      
+      if (status.status === 'paid' || paymentIntent.status === 'succeeded') {
+        // Show success animation
+        setIsSuccess(true);
+        try {
+          confetti({
+            particleCount: 80,
+            spread: 70,
+            origin: { y: 0.6 }
+          });
+        } catch (err) {
+          // Fallback if canvas-confetti fails
+        }
+
+        setSuccessDetails({
+          id: paymentIntent.id,
+          clientName: bookingDetails.clientName,
+          clientEmail: bookingDetails.clientEmail,
+          expertName: bookingDetails.expertName,
+          serviceTitle: bookingDetails.serviceTitle,
+          date: bookingDetails.scheduledAt,
+          amount: displayAmount,
+          status: 'Confirmed'
+        });
+      }
+    } catch (err) {
+      setError('Payment succeeded but confirmation failed. Please contact support.');
+      console.error('Payment verification error:', err);
+    }
   };
 
   const handleFinish = () => {
-    onBookingSuccess({
-      id: `#BK-${Math.floor(1000 + Math.random() * 9000)}`,
-      clientName: bookingDetails.clientName,
-      clientEmail: bookingDetails.clientEmail,
-      expertName: bookingDetails.expert.name,
-      serviceTitle: bookingDetails.package.title,
-      date: bookingDetails.slot,
-      amount: totalAmount,
-      status: 'Confirmed'
-    });
+    if (successDetails) {
+      onBookingSuccess(successDetails);
+    }
+  };
+
+  const handleError = (errorMsg) => {
+    setError(errorMsg);
   };
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div 
+      <div
         className="modal-box"
         style={{ maxWidth: '520px' }}
         onClick={(e) => e.stopPropagation()}
@@ -78,15 +220,15 @@ export default function StripeCheckoutModal({ bookingDetails, onClose, onBooking
               </div>
               <div>
                 <h3 style={{ fontSize: '17px', fontWeight: '700', color: 'var(--text-primary)' }}>
-                  Stripe Connect Escrow Checkout
+                  Secure Payment Checkout
                 </h3>
                 <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                  Encrypted 256-bit multi-vendor payout
+                  Powered by Stripe Connect
                 </div>
               </div>
             </div>
 
-            {/* Order Summary Pill */}
+            {/* Order Summary */}
             <div style={{
               padding: '14px',
               borderRadius: '10px',
@@ -95,12 +237,12 @@ export default function StripeCheckoutModal({ bookingDetails, onClose, onBooking
               marginBottom: '20px'
             }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', fontSize: '13px' }}>
-                <span style={{ color: 'var(--text-secondary)' }}>{bookingDetails.package?.title}</span>
-                <span style={{ fontWeight: '600', color: 'var(--text-primary)' }}>${totalAmount}.00</span>
+                <span style={{ color: 'var(--text-secondary)' }}>{bookingDetails.serviceTitle}</span>
+                <span style={{ fontWeight: '600', color: 'var(--text-primary)' }}>${displayAmount}</span>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-muted)' }}>
-                <span>Scheduled slot: {bookingDetails.slot}</span>
-                <span>Expert: {bookingDetails.expert?.name}</span>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px' }}>
+                <span>Expert: {bookingDetails.expertName}</span>
+                <span>Scheduled: {bookingDetails.scheduledAt}</span>
               </div>
               <div style={{
                 marginTop: '10px',
@@ -111,116 +253,63 @@ export default function StripeCheckoutModal({ bookingDetails, onClose, onBooking
                 display: 'flex',
                 justifyContent: 'space-between'
               }}>
-                <span>Platform Commission (15%): ${platformFee}.00</span>
-                <span>Direct Expert Payout: ${expertPayout}.00</span>
+                <span>Platform Fee (15%): ${(platformFee / 100).toFixed(2)}</span>
+                <span>Expert Payout (85%): ${(expertPayout / 100).toFixed(2)}</span>
               </div>
             </div>
 
-            {/* Simulated Stripe Credit Card Inputs */}
-            <form onSubmit={handlePay}>
-              <div style={{ marginBottom: '14px' }}>
-                <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '6px' }}>
-                  Card Number
-                </label>
-                <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  backgroundColor: 'var(--surface-input)',
-                  border: '1px solid var(--border-subtle)',
-                  borderRadius: '8px',
-                  padding: '10px 12px'
-                }}>
-                  <CreditCard size={16} color="var(--accent-purple-light)" />
-                  <input 
-                    type="text" 
-                    value={cardNumber}
-                    onChange={(e) => setCardNumber(e.target.value)}
-                    style={{ background: 'transparent', border: 'none', color: 'var(--text-primary)', fontSize: '13px', width: '100%' }}
-                  />
-                  <span style={{ fontSize: '11px', color: 'var(--accent-green)', fontWeight: '600' }}>VALID</span>
-                </div>
+            {/* Stripe Elements Payment Form */}
+            {isLoading ? (
+              <div style={{ textAlign: 'center', padding: '40px 20px' }}>
+                <Loader2 size={32} className="animate-spin" style={{ margin: '0 auto', color: '#818cf8' }} />
+                <p style={{ marginTop: '12px', fontSize: '13px', color: 'var(--text-muted)' }}>
+                  Initializing secure payment...
+                </p>
               </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px', marginBottom: '20px' }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px' }}>
-                    Expires
-                  </label>
-                  <input 
-                    type="text" 
-                    value={expiry}
-                    onChange={(e) => setExpiry(e.target.value)}
-                    style={{
-                      width: '100%',
-                      padding: '8px 10px',
-                      borderRadius: '8px',
-                      backgroundColor: 'var(--surface-input)',
-                      border: '1px solid var(--border-subtle)',
-                      fontSize: '13px'
-                    }}
-                  />
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px' }}>
-                    CVC
-                  </label>
-                  <input 
-                    type="text" 
-                    value={cvc}
-                    onChange={(e) => setCvc(e.target.value)}
-                    style={{
-                      width: '100%',
-                      padding: '8px 10px',
-                      borderRadius: '8px',
-                      backgroundColor: 'var(--surface-input)',
-                      border: '1px solid var(--border-subtle)',
-                      fontSize: '13px'
-                    }}
-                  />
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: '11px', color: 'var(--text-muted)', marginBottom: '4px' }}>
-                    Postal Code
-                  </label>
-                  <input 
-                    type="text" 
-                    value={zip}
-                    onChange={(e) => setZip(e.target.value)}
-                    style={{
-                      width: '100%',
-                      padding: '8px 10px',
-                      borderRadius: '8px',
-                      backgroundColor: 'var(--surface-input)',
-                      border: '1px solid var(--border-subtle)',
-                      fontSize: '13px'
-                    }}
-                  />
-                </div>
+            ) : error ? (
+              <div style={{
+                padding: '12px',
+                borderRadius: '8px',
+                backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                border: '1px solid rgb(239, 68, 68)',
+                color: 'rgb(239, 68, 68)',
+                fontSize: '13px',
+                marginBottom: '16px'
+              }}>
+                {error}
               </div>
-
-              <button 
-                type="submit" 
-                disabled={isProcessing}
-                className="btn-pro" 
-                style={{ width: '100%', padding: '12px', fontSize: '14px' }}
+            ) : clientSecret ? (
+              <Elements
+                stripe={stripePromise}
+                options={{
+                  clientSecret,
+                  appearance: {
+                    theme: 'stripe',
+                    variables: {
+                      colorPrimary: '#818cf8',
+                      colorBackground: 'var(--surface-input)',
+                      colorText: 'var(--text-primary)',
+                      colorDanger: '#ef4444',
+                    }
+                  }
+                }}
               >
-                {isProcessing ? (
-                  <>
-                    <Loader2 size={16} className="animate-spin" />
-                    <span>Authorizing Stripe Payment...</span>
-                  </>
-                ) : (
-                  <>
-                    <Lock size={15} />
-                    <span>Pay ${totalAmount}.00 with Stripe</span>
-                  </>
-                )}
-              </button>
-            </form>
+                <StripePaymentForm
+                  bookingDetails={bookingDetails}
+                  onSuccess={handlePaymentSuccess}
+                  onError={handleError}
+                  onProcessing={setIsProcessing}
+                />
+              </Elements>
+            ) : null}
+
+            <div style={{ marginTop: '12px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: 'var(--text-muted)' }}>
+              <Shield size={14} />
+              <span>Your payment information is encrypted and secured by Stripe</span>
+            </div>
           </div>
         ) : (
-          /* Payment Confirmed State */
+          /* Success State */
           <div style={{ textAlign: 'center', padding: '20px 10px' }}>
             <div style={{
               width: '56px',
@@ -241,7 +330,7 @@ export default function StripeCheckoutModal({ bookingDetails, onClose, onBooking
               Consultation Confirmed!
             </h3>
             <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '18px', maxWidth: '380px', margin: '0 auto 18px auto' }}>
-              Your payment has been settled into escrow. A calendar invite and direct video room link have been sent to <strong>{bookingDetails.clientEmail}</strong>.
+              Your payment has been processed and is now in escrow. A calendar invite and direct video room link have been sent to <strong>{bookingDetails.clientEmail}</strong>.
             </p>
 
             <div style={{
@@ -254,22 +343,24 @@ export default function StripeCheckoutModal({ bookingDetails, onClose, onBooking
               fontSize: '12px'
             }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                <span style={{ color: 'var(--text-muted)' }}>Advisor:</span>
-                <span style={{ fontWeight: '600', color: 'var(--text-primary)' }}>{bookingDetails.expert?.name}</span>
+                <span style={{ color: 'var(--text-muted)' }}>Expert:</span>
+                <span style={{ fontWeight: '600', color: 'var(--text-primary)' }}>{bookingDetails.expertName}</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
                 <span style={{ color: 'var(--text-muted)' }}>Scheduled Time:</span>
-                <span style={{ fontWeight: '600', color: 'var(--text-primary)' }}>{bookingDetails.slot}</span>
+                <span style={{ fontWeight: '600', color: 'var(--text-primary)' }}>{bookingDetails.scheduledAt}</span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--text-muted)' }}>Stripe Charge ID:</span>
-                <span style={{ color: 'var(--accent-purple-light)', fontFamily: 'monospace' }}>ch_3N87xLa9</span>
+                <span style={{ color: 'var(--text-muted)' }}>Payment ID:</span>
+                <span style={{ color: 'var(--accent-purple-light)', fontFamily: 'monospace', fontSize: '11px' }}>
+                  {successDetails?.id?.substring(0, 20)}...
+                </span>
               </div>
             </div>
 
-            <button 
-              onClick={handleFinish} 
-              className="btn-pro" 
+            <button
+              onClick={handleFinish}
+              className="btn-pro"
               style={{ width: '100%', padding: '12px', fontSize: '14px' }}
             >
               <span>Go to Consultation Room</span>

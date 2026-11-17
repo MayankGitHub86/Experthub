@@ -7,6 +7,7 @@ import {
 import expertsAPI from '../../api/experts.js';
 import bookingsAPI from '../../api/bookings.js';
 import ExpertProfileForm from './ExpertProfileForm.jsx';
+import ExpertStripeOnboarding from './ExpertStripeOnboarding.jsx';
 import ReviewModal from '../marketplace/ReviewModal.jsx';
 
 export default function ExpertPortal({ onJoinSession, theme }) {
@@ -301,7 +302,7 @@ export default function ExpertPortal({ onJoinSession, theme }) {
 
       {/* Tabs */}
       <div style={{ display: 'flex', gap: '4px', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '0', flexWrap: 'wrap' }}>
-        {['overview', 'sessions', 'profile', 'reviews'].map(tab => (
+        {['overview', 'sessions', 'payments', 'profile', 'reviews'].map(tab => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -319,7 +320,7 @@ export default function ExpertPortal({ onJoinSession, theme }) {
             }}
           >
             {tab === 'profile' && '⚙ '}
-            {tab === 'overview' ? 'Overview' : tab === 'sessions' ? `Sessions (${myBookings.length})` : tab === 'profile' ? 'Settings' : `Reviews (${reviews.length})`}
+            {tab === 'overview' ? 'Overview' : tab === 'sessions' ? `Sessions (${myBookings.length})` : tab === 'payments' ? 'Payments' : tab === 'profile' ? 'Settings' : `Reviews (${reviews.length})`}
           </button>
         ))}
       </div>
@@ -433,6 +434,11 @@ export default function ExpertPortal({ onJoinSession, theme }) {
             </div>
           )}
         </div>
+      )}
+
+      {/* Payments Tab */}
+      {activeTab === 'payments' && (
+        <ExpertStripeOnboarding />
       )}
 
       {/* Profile Settings Tab */}
