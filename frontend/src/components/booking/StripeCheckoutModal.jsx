@@ -6,14 +6,41 @@ import {
   useStripe,
   useElements,
 } from '@stripe/react-stripe-js';
-import { X, Lock, CheckCircle2, Shield, ArrowRight, Loader2 } from 'lucide-react';
+import { X, Lock, CheckCircle2, Shield, ArrowRight, Loader2, AlertTriangle } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import paymentsAPI from '../../api/payments.js';
 
 // Initialize Stripe (use environment variable for publishable key)
-const stripePromise = loadStripe(
-  import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || 'pk_test_51234567890'
-);
+const publishableKey = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY;
+
+if (!publishableKey) {
+  console.error('❌ STRIPE CONFIGURATION ERROR: VITE_STRIPE_PUBLISHABLE_KEY is not set in .env');
+  console.error('   Frontend will not be able to load Stripe');
+}
+
+// Create and cache the Stripe Promise
+let stripePromise = null;
+let stripeInitError = null;
+
+function getStripePromise() {
+  if (stripePromise) {
+    return stripePromise;
+  }
+  
+  if (!publishableKey) {
+    stripeInitError = 'Stripe publishable key is not configured';
+    console.error(stripeInitError);
+    return Promise.reject(new Error(stripeInitError));
+  }
+  
+  stripePromise = loadStripe(publishableKey).catch(err => {
+    stripeInitError = `Failed to initialize Stripe: ${err.message}`;
+    console.error(stripeInitError, err);
+    throw err;
+  });
+  
+  return stripePromise;
+}
 
 /**
  * Payment form component that handles the actual Stripe payment
@@ -135,13 +162,24 @@ function PaymentContent({ clientSecret, bookingDetails, onSuccess, onError, onPr
         fontSize: '13px',
         marginBottom: '16px'
       }}>
-        {error}
+        <strong>❌ Error:</strong> {error}
       </div>
     );
   }
 
   if (!clientSecret) {
-    return null;
+    return (
+      <div style={{
+        padding: '12px',
+        borderRadius: '8px',
+        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+        border: '1px solid rgb(59, 130, 246)',
+        color: 'rgb(59, 130, 246)',
+        fontSize: '13px'
+      }}>
+        Preparing payment form...
+      </div>
+    );
   }
 
   return (
@@ -167,13 +205,39 @@ export default function StripeCheckoutModal({ bookingDetails, onClose, onBooking
   const [_isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState(null);
   const [successDetails, setSuccessDetails] = useState(null);
+  const [stripeInstance, setStripeInstance] = useState(null);
+  const [stripeError, setStripeError] = useState(null);
 
   /**
-   * Initialize payment intent when component mounts
+   * Initialize Stripe on component mount
+   */
+  useEffect(() => {
+    console.log('🔄 StripeCheckoutModal: Mounting, initializing Stripe...');
+    
+    getStripePromise()
+      .then(stripe => {
+        console.log('✅ Stripe initialized successfully');
+        setStripeInstance(stripe);
+        setStripeError(null);
+      })
+      .catch(err => {
+        const errMsg = `Stripe initialization failed: ${err.message}`;
+        console.error('❌', errMsg);
+        setStripeError(errMsg);
+        setIsLoading(false);
+      });
+  }, []);
+
+  /**
+   * Initialize payment intent when component mounts and booking details are available
    * Called unconditionally at top level
    */
   useEffect(() => {
-    if (!bookingDetails) return;
+    if (!bookingDetails || !stripeInstance) return;
+
+    console.log('💳 StripeCheckoutModal: Creating payment intent');
+    console.log(`   Booking ID: ${bookingDetails.bookingId}`);
+    console.log(`   Amount: $${(bookingDetails.totalAmount / 100).toFixed(2)}`);
 
     const initializePayment = async () => {
       try {
@@ -185,21 +249,87 @@ export default function StripeCheckoutModal({ bookingDetails, onClose, onBooking
           bookingDetails.currency || 'USD'
         );
 
+        console.log('✅ PaymentIntent created:', intentData.id?.substring(0, 20) + '...');
         setClientSecret(intentData.clientSecret);
         setError(null);
       } catch (err) {
-        setError(err.response?.data?.message || 'Failed to initialize payment. Please try again.');
-        console.error('Payment initialization error:', err);
+        const errMsg = err.response?.data?.message || 'Failed to initialize payment. Please try again.';
+        console.error('❌ Payment initialization error:', err.response?.data || err.message);
+        setError(errMsg);
       } finally {
         setIsLoading(false);
       }
     };
 
     initializePayment();
-  }, [bookingDetails]);
+  }, [bookingDetails, stripeInstance]);
 
   // Early return AFTER all hooks have been declared
   if (!bookingDetails) return null;
+
+  // Show Stripe initialization error
+  if (stripeError && !clientSecret) {
+    return (
+      <div className="modal-overlay" onClick={onClose}>
+        <div
+          className="modal-box"
+          style={{ maxWidth: '520px' }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button className="modal-close-btn" onClick={onClose}>
+            <X size={20} />
+          </button>
+          
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+            <div style={{
+              width: '32px',
+              height: '32px',
+              borderRadius: '8px',
+              background: 'rgba(239, 68, 68, 0.2)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#ef4444'
+            }}>
+              <AlertTriangle size={16} />
+            </div>
+            <div>
+              <h3 style={{ fontSize: '17px', fontWeight: '700', color: 'var(--text-primary)' }}>
+                Configuration Error
+              </h3>
+              <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                Payment system unavailable
+              </div>
+            </div>
+          </div>
+
+          <div style={{
+            padding: '12px',
+            borderRadius: '8px',
+            backgroundColor: 'rgba(239, 68, 68, 0.1)',
+            border: '1px solid rgb(239, 68, 68)',
+            color: 'rgb(239, 68, 68)',
+            fontSize: '13px',
+            marginBottom: '16px'
+          }}>
+            {stripeError}
+          </div>
+
+          <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '16px' }}>
+            Please contact support if this error persists.
+          </p>
+
+          <button
+            onClick={onClose}
+            className="btn-pro"
+            style={{ width: '100%', padding: '12px', fontSize: '14px' }}
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   const totalAmount = bookingDetails.totalAmount; // Amount in cents
   const displayAmount = (totalAmount / 100).toFixed(2);
@@ -320,10 +450,10 @@ export default function StripeCheckoutModal({ bookingDetails, onClose, onBooking
             </div>
 
             {/* Stripe Elements Payment Form */}
-            {/* Always render Elements provider if clientSecret exists, even if loading/error */}
-            {clientSecret ? (
+            {/* Always render Elements provider if clientSecret and stripeInstance exist */}
+            {clientSecret && stripeInstance ? (
               <Elements
-                stripe={stripePromise}
+                stripe={stripeInstance}
                 options={{
                   clientSecret,
                   appearance: {
