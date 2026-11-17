@@ -2,10 +2,12 @@ import React, { useState, useEffect } from 'react';
 import {
   Star, DollarSign, Calendar, Users, Clock, TrendingUp,
   Video, CheckCircle, ToggleLeft, ToggleRight, Award,
-  ArrowUpRight, MessageSquare, Zap, Edit3, AlertCircle, Loader
+  ArrowUpRight, MessageSquare, Zap, Edit3, AlertCircle, Loader,
+  Plus, Check, Power
 } from 'lucide-react';
 import expertsAPI from '../../api/experts.js';
 import bookingsAPI from '../../api/bookings.js';
+import servicesAPI from '../../api/services.js';
 import ExpertProfileForm from './ExpertProfileForm.jsx';
 import ExpertStripeOnboarding from './ExpertStripeOnboarding.jsx';
 import ReviewModal from '../marketplace/ReviewModal.jsx';
@@ -15,6 +17,15 @@ export default function ExpertPortal({ onJoinSession, theme }) {
   const [activeTab, setActiveTab] = useState('overview');
   const [expertProfile, setExpertProfile] = useState(null);
   const [myBookings, setMyBookings] = useState([]);
+  const [myServices, setMyServices] = useState([]);
+  const [showCreateService, setShowCreateService] = useState(false);
+  const [serviceForm, setServiceForm] = useState({
+    title: '',
+    description: '',
+    category: 'technology-consulting',
+    duration: 60,
+    amount: 150,
+  });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [showProfileForm, setShowProfileForm] = useState(false);
@@ -44,11 +55,64 @@ export default function ExpertPortal({ onJoinSession, theme }) {
       if (bookingsData?.bookings) {
         setMyBookings(bookingsData.bookings);
       }
+
+      // Try to fetch expert services
+      const servicesData = await servicesAPI.getMyServices().catch(() => null);
+      if (Array.isArray(servicesData)) {
+        setMyServices(servicesData);
+      }
     } catch (err) {
       console.error('Failed to load data:', err);
       // Fallback: don't show error, use empty state
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleToggleService = async (service) => {
+    try {
+      if (service.isActive) {
+        await servicesAPI.deactivate(service._id);
+      } else {
+        await servicesAPI.activate(service._id);
+      }
+      const updated = await servicesAPI.getMyServices().catch(() => []);
+      if (Array.isArray(updated)) setMyServices(updated);
+    } catch (err) {
+      alert(err.response?.data?.message || 'Failed to update service status');
+    }
+  };
+
+  const handleCreateService = async (e) => {
+    e.preventDefault();
+    try {
+      const newService = await servicesAPI.create({
+        title: serviceForm.title,
+        description: serviceForm.description,
+        category: serviceForm.category,
+        duration: Number(serviceForm.duration),
+        pricing: {
+          type: 'fixed',
+          amount: Number(serviceForm.amount),
+          currency: 'USD'
+        }
+      });
+      // Activate service immediately so it's bookable
+      if (newService?._id) {
+        await servicesAPI.activate(newService._id).catch(() => {});
+      }
+      setShowCreateService(false);
+      setServiceForm({
+        title: '',
+        description: '',
+        category: 'technology-consulting',
+        duration: 60,
+        amount: 150,
+      });
+      const updated = await servicesAPI.getMyServices().catch(() => []);
+      if (Array.isArray(updated)) setMyServices(updated);
+    } catch (err) {
+      alert(err.response?.data?.message || 'Failed to create service');
     }
   };
 
@@ -302,7 +366,7 @@ export default function ExpertPortal({ onJoinSession, theme }) {
 
       {/* Tabs */}
       <div style={{ display: 'flex', gap: '4px', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '0', flexWrap: 'wrap' }}>
-        {['overview', 'sessions', 'payments', 'profile', 'reviews'].map(tab => (
+        {['overview', 'sessions', 'services', 'payments', 'profile', 'reviews'].map(tab => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -320,7 +384,7 @@ export default function ExpertPortal({ onJoinSession, theme }) {
             }}
           >
             {tab === 'profile' && '⚙ '}
-            {tab === 'overview' ? 'Overview' : tab === 'sessions' ? `Sessions (${myBookings.length})` : tab === 'payments' ? 'Payments' : tab === 'profile' ? 'Settings' : `Reviews (${reviews.length})`}
+            {tab === 'overview' ? 'Overview' : tab === 'sessions' ? `Sessions (${myBookings.length})` : tab === 'services' ? `Services (${myServices.length})` : tab === 'payments' ? 'Payments' : tab === 'profile' ? 'Settings' : `Reviews (${reviews.length})`}
           </button>
         ))}
       </div>
@@ -431,6 +495,314 @@ export default function ExpertPortal({ onJoinSession, theme }) {
             <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-muted)' }}>
               <Calendar size={36} style={{ opacity: 0.3, margin: '0 auto 16px' }} />
               <p style={{ fontSize: '14px', margin: 0 }}>No bookings yet. Complete your profile and start accepting clients!</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Services Tab */}
+      {activeTab === 'services' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+            <div>
+              <h3 style={{ fontSize: '18px', fontWeight: '700', color: 'var(--text-primary)', margin: '0 0 4px 0' }}>
+                Consultation Services & Packages
+              </h3>
+              <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: 0 }}>
+                Manage your services, set pricing, and control which services are active in the marketplace.
+              </p>
+            </div>
+            <button
+              onClick={() => setShowCreateService(!showCreateService)}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '10px 18px',
+                borderRadius: '8px',
+                border: 'none',
+                backgroundColor: accentColor,
+                color: '#fff',
+                fontSize: '13px',
+                fontWeight: '600',
+                cursor: 'pointer'
+              }}
+            >
+              <Plus size={16} />
+              <span>{showCreateService ? 'Cancel' : 'Create New Service'}</span>
+            </button>
+          </div>
+
+          {/* Create Service Form */}
+          {showCreateService && (
+            <form onSubmit={handleCreateService} style={{
+              padding: '24px',
+              borderRadius: '14px',
+              backgroundColor: 'var(--surface-card)',
+              border: `2px solid ${accentColor}`,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '16px'
+            }}>
+              <h4 style={{ fontSize: '15px', fontWeight: '700', color: 'var(--text-primary)', margin: 0 }}>
+                New Service Details
+              </h4>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '16px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-secondary)', marginBottom: '6px' }}>
+                    Service Title *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={serviceForm.title}
+                    onChange={(e) => setServiceForm({ ...serviceForm, title: e.target.value })}
+                    placeholder="e.g., 60-Minute Architecture Consultation"
+                    style={{
+                      width: '100%',
+                      padding: '10px 12px',
+                      borderRadius: '8px',
+                      border: '1px solid var(--border-subtle)',
+                      backgroundColor: 'var(--surface-input)',
+                      color: 'var(--text-primary)',
+                      fontSize: '13px'
+                    }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-secondary)', marginBottom: '6px' }}>
+                    Category *
+                  </label>
+                  <select
+                    value={serviceForm.category}
+                    onChange={(e) => setServiceForm({ ...serviceForm, category: e.target.value })}
+                    style={{
+                      width: '100%',
+                      padding: '10px 12px',
+                      borderRadius: '8px',
+                      border: '1px solid var(--border-subtle)',
+                      backgroundColor: 'var(--surface-input)',
+                      color: 'var(--text-primary)',
+                      fontSize: '13px'
+                    }}
+                  >
+                    <option value="business-consulting">Business Consulting</option>
+                    <option value="career-coaching">Career Coaching</option>
+                    <option value="financial-advice">Financial Advice</option>
+                    <option value="technology-consulting">Technology Consulting</option>
+                    <option value="marketing-strategy">Marketing Strategy</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-secondary)', marginBottom: '6px' }}>
+                    Duration (Minutes) *
+                  </label>
+                  <input
+                    type="number"
+                    min="15"
+                    max="480"
+                    step="15"
+                    required
+                    value={serviceForm.duration}
+                    onChange={(e) => setServiceForm({ ...serviceForm, duration: e.target.value })}
+                    style={{
+                      width: '100%',
+                      padding: '10px 12px',
+                      borderRadius: '8px',
+                      border: '1px solid var(--border-subtle)',
+                      backgroundColor: 'var(--surface-input)',
+                      color: 'var(--text-primary)',
+                      fontSize: '13px'
+                    }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-secondary)', marginBottom: '6px' }}>
+                    Price (USD) *
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    required
+                    value={serviceForm.amount}
+                    onChange={(e) => setServiceForm({ ...serviceForm, amount: e.target.value })}
+                    style={{
+                      width: '100%',
+                      padding: '10px 12px',
+                      borderRadius: '8px',
+                      border: '1px solid var(--border-subtle)',
+                      backgroundColor: 'var(--surface-input)',
+                      color: 'var(--text-primary)',
+                      fontSize: '13px'
+                    }}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '12px', fontWeight: '600', color: 'var(--text-secondary)', marginBottom: '6px' }}>
+                  Description *
+                </label>
+                <textarea
+                  rows="3"
+                  required
+                  value={serviceForm.description}
+                  onChange={(e) => setServiceForm({ ...serviceForm, description: e.target.value })}
+                  placeholder="Describe what client will get from this consultation..."
+                  style={{
+                    width: '100%',
+                    padding: '10px 12px',
+                    borderRadius: '8px',
+                    border: '1px solid var(--border-subtle)',
+                    backgroundColor: 'var(--surface-input)',
+                    color: 'var(--text-primary)',
+                    fontSize: '13px',
+                    resize: 'vertical'
+                  }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+                <button
+                  type="button"
+                  onClick={() => setShowCreateService(false)}
+                  style={{
+                    padding: '8px 16px',
+                    borderRadius: '6px',
+                    border: '1px solid var(--border-subtle)',
+                    backgroundColor: 'transparent',
+                    color: 'var(--text-muted)',
+                    cursor: 'pointer',
+                    fontSize: '13px'
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  style={{
+                    padding: '8px 20px',
+                    borderRadius: '6px',
+                    border: 'none',
+                    backgroundColor: accentColor,
+                    color: '#fff',
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                    fontSize: '13px'
+                  }}
+                >
+                  Create & Activate Service
+                </button>
+              </div>
+            </form>
+          )}
+
+          {/* Services List */}
+          {myServices.length > 0 ? (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '16px' }}>
+              {myServices.map((service) => (
+                <div
+                  key={service._id}
+                  style={{
+                    padding: '20px',
+                    borderRadius: '14px',
+                    backgroundColor: 'var(--surface-card)',
+                    border: '1px solid var(--border-subtle)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    justifyContent: 'space-between',
+                    gap: '16px'
+                  }}
+                >
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                      <span style={{
+                        padding: '3px 8px',
+                        borderRadius: '6px',
+                        fontSize: '11px',
+                        fontWeight: '700',
+                        backgroundColor: service.isActive ? '#dcfce7' : '#fee2e2',
+                        color: service.isActive ? '#16a34a' : '#dc2626'
+                      }}>
+                        {service.isActive ? 'Active in Marketplace' : 'Inactive'}
+                      </span>
+                      <span style={{
+                        padding: '3px 8px',
+                        borderRadius: '6px',
+                        fontSize: '11px',
+                        fontWeight: '600',
+                        backgroundColor: 'var(--surface-input)',
+                        color: 'var(--text-muted)'
+                      }}>
+                        {service.status || 'draft'}
+                      </span>
+                    </div>
+
+                    <h4 style={{ fontSize: '15px', fontWeight: '700', color: 'var(--text-primary)', margin: '0 0 6px 0' }}>
+                      {service.title}
+                    </h4>
+                    <p style={{ fontSize: '12px', color: 'var(--text-secondary)', lineHeight: '1.5', margin: '0 0 12px 0' }}>
+                      {service.description}
+                    </p>
+                  </div>
+
+                  <div style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: '14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <div style={{ fontSize: '18px', fontWeight: '800', color: 'var(--text-primary)' }}>
+                        ${service.pricing?.amount || service.price}
+                      </div>
+                      <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                        {service.duration} minutes
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => handleToggleService(service)}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        padding: '7px 14px',
+                        borderRadius: '6px',
+                        border: 'none',
+                        backgroundColor: service.isActive ? '#fee2e2' : '#dcfce7',
+                        color: service.isActive ? '#dc2626' : '#16a34a',
+                        fontWeight: '600',
+                        fontSize: '12px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <Power size={13} />
+                      <span>{service.isActive ? 'Deactivate' : 'Activate'}</span>
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{ textAlign: 'center', padding: '60px 20px', borderRadius: '14px', backgroundColor: 'var(--surface-card)', border: '1px solid var(--border-subtle)' }}>
+              <Zap size={36} style={{ color: 'var(--text-muted)', margin: '0 auto 12px auto' }} />
+              <h4 style={{ fontSize: '16px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '6px' }}>
+                No Services Created Yet
+              </h4>
+              <p style={{ fontSize: '13px', color: 'var(--text-muted)', maxWidth: '400px', margin: '0 auto 16px auto' }}>
+                Create consultation tiers so clients can book specific packages directly from your profile.
+              </p>
+              <button
+                onClick={() => setShowCreateService(true)}
+                style={{
+                  padding: '10px 20px',
+                  borderRadius: '8px',
+                  border: 'none',
+                  backgroundColor: accentColor,
+                  color: '#fff',
+                  fontWeight: '600',
+                  fontSize: '13px',
+                  cursor: 'pointer'
+                }}
+              >
+                Create Your First Service
+              </button>
             </div>
           )}
         </div>

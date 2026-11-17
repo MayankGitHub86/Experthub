@@ -61,10 +61,11 @@ class StripeAdapter {
    * Create a payment intent
    * 
    * @param {object} params - PaymentIntent parameters
+   * @param {object} options - Request options (idempotencyKey, etc.)
    * @returns {Promise<object>} PaymentIntent object
    */
-  async createPaymentIntent(params) {
-    return this.stripeClient.paymentIntents.create(params);
+  async createPaymentIntent(params, options = {}) {
+    return this.stripeClient.paymentIntents.create(params, options);
   }
 
   /**

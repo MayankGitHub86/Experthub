@@ -46,7 +46,11 @@ io.use(async (socket, next) => {
       },
     };
     
-    const fakeRes = {};
+    const fakeRes = {
+      status: (code) => ({
+        json: (data) => next(new Error(data?.message || `Authentication failed with status ${code}`)),
+      }),
+    };
     
     // Use our authenticate middleware
     await socketAuth(fakeReq, fakeRes, (error) => {

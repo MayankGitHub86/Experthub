@@ -9,7 +9,7 @@ import client from './client.js';
 export const availabilityAPI = {
   /**
    * Get availability for an expert
-   * GET /api/v1/availability/expert/:expertId
+   * GET /api/v1/experts/:expertId/availability/slots
    */
   getExpertAvailability: async (expertId, params = {}) => {
     const query = new URLSearchParams();
@@ -20,13 +20,13 @@ export const availabilityAPI = {
     if (params.timezone) query.append('timezone', params.timezone);
     
     const queryStr = query.toString() ? `?${query.toString()}` : '';
-    const response = await client.get(`/availability/expert/${expertId}${queryStr}`);
+    const response = await client.get(`/experts/${expertId}/availability/slots${queryStr}`);
     return response.data.data;
   },
 
   /**
    * Get all availability slots for an expert (no date filter)
-   * GET /api/v1/availability/expert/:expertId/all
+   * GET /api/v1/experts/:expertId/availability/slots
    */
   getExpertAvailabilityAll: async (expertId, params = {}) => {
     const query = new URLSearchParams();
@@ -35,7 +35,7 @@ export const availabilityAPI = {
     if (params.timezone) query.append('timezone', params.timezone);
     
     const queryStr = query.toString() ? `?${query.toString()}` : '';
-    const response = await client.get(`/availability/expert/${expertId}/all${queryStr}`);
+    const response = await client.get(`/experts/${expertId}/availability/slots${queryStr}`);
     return response.data.data;
   },
 

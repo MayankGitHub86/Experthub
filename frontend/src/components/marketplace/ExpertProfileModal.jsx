@@ -1,10 +1,67 @@
-import React, { useState } from 'react';
-import { X, Star, CheckCircle, Calendar, ShieldCheck, Clock, Award } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, Star, CheckCircle, Calendar, ShieldCheck, Clock, Award, Loader } from 'lucide-react';
 import ReviewsSection from './ReviewsSection';
+import bookingsAPI from '../../api/bookings.js';
 
 export default function ExpertProfileModal({ expert, onClose, onSelectPackage }) {
   const [activeTab, setActiveTab] = useState('about');
+  const [services, setServices] = useState([]);
+  const [loadingServices, setLoadingServices] = useState(false);
+
+  useEffect(() => {
+    if (!expert) return;
+
+    if (expert.packages && expert.packages.length > 0) {
+      setServices(expert.packages);
+      return;
+    }
+
+    if (expert.services && expert.services.length > 0) {
+      setServices(expert.services.map(s => ({
+        id: s._id || s.id,
+        title: s.title || s.name,
+        desc: s.description || s.desc || '',
+        duration: typeof s.duration === 'number' ? `${s.duration} mins` : s.duration,
+        price: s.pricing?.amount || s.price || expert.hourlyRate || 100,
+      })));
+      return;
+    }
+
+    const expertId = expert._id || expert.id;
+    if (expertId && String(expertId).match(/^[0-9a-fA-F]{24}$/)) {
+      setLoadingServices(true);
+      bookingsAPI.getExpertServices(expertId)
+        .then(data => {
+          if (Array.isArray(data) && data.length > 0) {
+            setServices(data.map(s => ({
+              id: s._id,
+              title: s.title,
+              desc: s.description || '',
+              duration: `${s.duration} mins`,
+              price: s.pricing?.amount || 100,
+            })));
+          }
+        })
+        .catch(err => {
+          console.error('Error fetching expert services:', err);
+        })
+        .finally(() => {
+          setLoadingServices(false);
+        });
+    }
+  }, [expert]);
+
   if (!expert) return null;
+
+  const expertName = expert.name || `${expert.firstName || ''} ${expert.lastName || ''}`.trim() || 'Expert';
+  const expertAvatar = expert.avatar || expert.profilePicture || 'https://via.placeholder.com/84?text=Expert';
+  const expertRole = expert.role || expert.headline || 'Verified Consultant';
+  const expertCompany = expert.company || 'ExpertHub Verified';
+  const expertRating = expert.rating || (expert.stats?.rating ? expert.stats.rating.toFixed(1) : '5.0');
+  const expertReviewsCount = expert.reviewsCount || expert.stats?.reviewCount || 0;
+  const expertTags = expert.tags || expert.skills || [];
+  const expertBadge = expert.badge || (expert.verificationStatus === 'approved' ? 'Top Rated' : 'Verified');
+  const isVerified = expert.verified || expert.verificationStatus === 'approved';
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -21,11 +78,11 @@ export default function ExpertProfileModal({ expert, onClose, onSelectPackage })
         <div style={{ display: 'flex', gap: '20px', alignItems: 'flex-start', marginBottom: '24px' }}>
           <div style={{ position: 'relative' }}>
             <img 
-              src={expert.avatar} 
-              alt={expert.name} 
+              src={expertAvatar} 
+              alt={expertName} 
               style={{ width: '84px', height: '84px', borderRadius: '18px', objectFit: 'cover' }}
             />
-            {expert.verified && (
+            {isVerified && (
               <div 
                 style={{
                   position: 'absolute',
@@ -49,7 +106,7 @@ export default function ExpertProfileModal({ expert, onClose, onSelectPackage })
 
           <div style={{ flexGrow: 1 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
-              <h2 style={{ fontSize: '22px', fontWeight: '700', color: 'var(--text-primary)' }}>{expert.name}</h2>
+              <h2 style={{ fontSize: '22px', fontWeight: '700', color: 'var(--text-primary)' }}>{expertName}</h2>
               <span style={{
                 fontSize: '11px',
                 fontWeight: '600',
@@ -59,24 +116,24 @@ export default function ExpertProfileModal({ expert, onClose, onSelectPackage })
                 color: '#c084fc',
                 border: '1px solid rgba(139, 92, 246, 0.3)'
               }}>
-                {expert.badge}
+                {expertBadge}
               </span>
             </div>
             <div style={{ fontSize: '14px', color: 'var(--accent-purple-light)', fontWeight: '500', marginBottom: '4px' }}>
-              {expert.role}
+              {expertRole}
             </div>
             <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-              {expert.company}
+              {expertCompany}
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginTop: '12px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#fbbf24', fontSize: '13px', fontWeight: '600' }}>
                 <Star size={15} fill="#fbbf24" stroke="#fbbf24" />
-                <span>{expert.rating}</span>
-                <span style={{ color: 'var(--text-muted)', fontWeight: '400' }}>({expert.reviewsCount} verified reviews)</span>
+                <span>{expertRating}</span>
+                <span style={{ color: 'var(--text-muted)', fontWeight: '400' }}>({expertReviewsCount} verified reviews)</span>
               </div>
               <div style={{ fontSize: '13px', color: 'var(--text-primary)', fontWeight: '700' }}>
-                ${expert.hourlyRate}/hr
+                ${expert.hourlyRate || 100}/hr
               </div>
             </div>
           </div>
@@ -114,7 +171,7 @@ export default function ExpertProfileModal({ expert, onClose, onSelectPackage })
               transition: 'all 0.2s ease'
             }}
           >
-            Reviews ({expert.reviewsCount})
+            Reviews ({expertReviewsCount})
           </button>
         </div>
 
@@ -126,88 +183,123 @@ export default function ExpertProfileModal({ expert, onClose, onSelectPackage })
                 About Advisor
               </h4>
               <p style={{ fontSize: '14px', color: 'var(--text-secondary)', lineHeight: '1.6' }}>
-                {expert.bio}
+                {expert.bio || 'Professional consultant available for advisory sessions.'}
               </p>
             </div>
 
-            {/* Tags */}
-            <div style={{ marginBottom: '28px' }}>
-              <h4 style={{ fontSize: '13px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' }}>
-                Core Competencies
-              </h4>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                {expert.tags.map((tag) => (
-                  <span key={tag} style={{
-                    fontSize: '12px',
-                    padding: '4px 10px',
-                    borderRadius: '8px',
-                    backgroundColor: 'var(--surface-input)',
-                    border: '1px solid var(--border-subtle)',
-                    color: 'var(--text-secondary)'
-                  }}>
-                    {tag}
-                  </span>
-                ))}
+            {/* Tags / Skills */}
+            {expertTags.length > 0 && (
+              <div style={{ marginBottom: '28px' }}>
+                <h4 style={{ fontSize: '13px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px' }}>
+                  Core Competencies
+                </h4>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                  {expertTags.map((tag) => (
+                    <span key={tag} style={{
+                      fontSize: '12px',
+                      padding: '4px 10px',
+                      borderRadius: '8px',
+                      backgroundColor: 'var(--surface-input)',
+                      border: '1px solid var(--border-subtle)',
+                      color: 'var(--text-secondary)'
+                    }}>
+                      {tag}
+                    </span>
+                  ))}
+                </div>
               </div>
-            </div>
+            )}
 
             {/* Service Packages */}
             <div>
               <h4 style={{ fontSize: '13px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '12px' }}>
                 Available Consultation Packages
               </h4>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                {expert.packages.map((pkg) => (
-                  <div 
-                    key={pkg.id}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      padding: '14px 18px',
-                      borderRadius: '12px',
-                      backgroundColor: 'var(--surface-input)',
-                      border: '1px solid var(--border-subtle)',
-                      transition: 'border-color 0.2s'
-                    }}
-                  >
-                    <div>
-                      <div style={{ fontSize: '14px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '2px' }}>
-                        {pkg.title}
-                      </div>
-                      <div style={{ fontSize: '12px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                        <Clock size={12} />
-                        <span>{pkg.duration}</span>
-                        <span>•</span>
-                        <span>{pkg.desc}</span>
-                      </div>
-                    </div>
-
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                      <div style={{ fontSize: '16px', fontWeight: '700', color: 'var(--text-primary)' }}>
-                        ${pkg.price}
-                      </div>
-                      <button 
-                        className="btn-pro" 
-                        style={{ padding: '8px 14px', width: 'auto' }}
-                        onClick={() => onSelectPackage(expert, pkg)}
-                      >
-                        <Calendar size={13} />
-                        <span>Book Now</span>
-                      </button>
-                    </div>
+              {loadingServices ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '16px' }}>
+                  <Loader size={16} className="animate-spin" />
+                  <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>Loading consultation packages...</span>
+                </div>
+              ) : services.length === 0 ? (
+                <div style={{
+                  padding: '16px',
+                  borderRadius: '12px',
+                  backgroundColor: 'var(--surface-input)',
+                  border: '1px solid var(--border-subtle)',
+                  color: 'var(--text-muted)',
+                  fontSize: '13px',
+                  textAlign: 'center'
+                }}>
+                  No packages currently listed. Standard consultation rate is ${expert.hourlyRate || 100}/hr.
+                  <div style={{ marginTop: '10px' }}>
+                    <button 
+                      className="btn-pro" 
+                      style={{ padding: '8px 16px', width: 'auto' }}
+                      onClick={() => onSelectPackage(expert, { id: 'standard', title: 'Consultation Session', price: expert.hourlyRate || 100, duration: '60 mins' })}
+                    >
+                      <Calendar size={13} />
+                      <span>Book Standard Session</span>
+                    </button>
                   </div>
-                ))}
-              </div>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                  {services.map((pkg) => (
+                    <div 
+                      key={pkg.id}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        padding: '14px 18px',
+                        borderRadius: '12px',
+                        backgroundColor: 'var(--surface-input)',
+                        border: '1px solid var(--border-subtle)',
+                        transition: 'border-color 0.2s'
+                      }}
+                    >
+                      <div>
+                        <div style={{ fontSize: '14px', fontWeight: '600', color: 'var(--text-primary)', marginBottom: '2px' }}>
+                          {pkg.title}
+                        </div>
+                        <div style={{ fontSize: '12px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <Clock size={12} />
+                          <span>{pkg.duration}</span>
+                          {pkg.desc && (
+                            <>
+                              <span>•</span>
+                              <span>{pkg.desc.substring(0, 50)}...</span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                        <div style={{ fontSize: '16px', fontWeight: '700', color: 'var(--text-primary)' }}>
+                          ${pkg.price}
+                        </div>
+                        <button 
+                          className="btn-pro" 
+                          style={{ padding: '8px 14px', width: 'auto' }}
+                          onClick={() => onSelectPackage(expert, pkg)}
+                        >
+                          <Calendar size={13} />
+                          <span>Book Now</span>
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}
 
         {activeTab === 'reviews' && (
           <ReviewsSection 
-            reviews={expert.reviews} 
-            averageRating={expert.rating} 
-            totalCount={expert.reviewsCount} 
+            reviews={expert.reviews || []} 
+            averageRating={parseFloat(expertRating) || 5.0} 
+            totalCount={expertReviewsCount} 
           />
         )}
       </div>

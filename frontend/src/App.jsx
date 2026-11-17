@@ -190,6 +190,14 @@ export default function App() {
           onExploreApp={() => {
             setIsAuthenticated(true);
           }}
+          onNavigateToExperts={() => {
+            setIsAuthenticated(true);
+            setActiveTab('customers');
+          }}
+          onSelectExpertProfile={(expert) => {
+            setIsAuthenticated(true);
+            setSelectedExpertForProfile(expert);
+          }}
           onBookExpert={(expert) => {
             setIsAuthenticated(true);
             handleStartBooking(expert);

@@ -58,9 +58,10 @@ class PaymentService {
     }
 
     // Verify booking is in correct state for payment
-    if (booking.status !== 'confirmed') {
+    // Bookings are created in 'payment_pending' status and remain there until payment succeeds
+    if (!['payment_pending', 'confirmed'].includes(booking.status)) {
       throw new AppError(
-        `Cannot create payment for booking in state: ${booking.status}. Expected: confirmed`,
+        `Cannot create payment for booking in state: ${booking.status}. Expected: payment_pending or confirmed`,
         400
       );
     }
@@ -157,9 +158,6 @@ class PaymentService {
         // Metadata for reconciliation
         metadata,
         
-        // Idempotency key: prevent duplicate charges on retry
-        idempotency_key: `booking_${bookingId}_${Date.now()}`,
-        
         // Description for Stripe dashboard
         description: `ExpertHub Booking: ${booking.bookingNumber || bookingId}`,
         
@@ -168,6 +166,10 @@ class PaymentService {
         
         // Statement descriptor for credit card statement
         statement_descriptor: 'EXPERTHUB CONSULTATION'
+      }, {
+        // Idempotency key: prevent duplicate charges on retry
+        // Pass as request options, not as parameter
+        idempotencyKey: `booking_${bookingId}_${Date.now()}`
       });
 
       logger.info('Payment intent created', {

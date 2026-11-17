@@ -29,6 +29,7 @@ router.get('/category/:category', serviceController.getServicesByCategory);
 router.post('/', authenticate, authorize('expert'), serviceController.createService);
 
 // Get my services (including inactive) - must be before /:id to avoid catching 'me' as an ID
+router.get('/me', authenticate, authorize('expert'), serviceController.getMyServices);
 router.get('/me/all', authenticate, authorize('expert'), serviceController.getMyServices);
 
 /**

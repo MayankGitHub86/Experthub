@@ -62,6 +62,24 @@ export const servicesAPI = {
   },
 
   /**
+   * Activate a service
+   * PATCH /api/v1/services/:id/activate
+   */
+  activate: async (serviceId) => {
+    const response = await client.patch(`/services/${serviceId}/activate`);
+    return response.data.data;
+  },
+
+  /**
+   * Deactivate a service
+   * PATCH /api/v1/services/:id/deactivate
+   */
+  deactivate: async (serviceId) => {
+    const response = await client.patch(`/services/${serviceId}/deactivate`);
+    return response.data.data;
+  },
+
+  /**
    * Get all services (with optional filters)
    * GET /api/v1/services
    */
