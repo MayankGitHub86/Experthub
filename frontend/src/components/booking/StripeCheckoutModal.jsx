@@ -17,8 +17,11 @@ const stripePromise = loadStripe(
 
 /**
  * Payment form component that handles the actual Stripe payment
+ * MUST be rendered inside Elements provider
+ * Stripe hooks (useStripe, useElements) are always called unconditionally at top level
  */
 function StripePaymentForm({ bookingDetails, onSuccess, onError, onProcessing }) {
+  // These hooks MUST be called unconditionally at the top level
   const stripe = useStripe();
   const elements = useElements();
   const [isProcessing, setIsProcessing] = useState(false);
@@ -49,7 +52,7 @@ function StripePaymentForm({ bookingDetails, onSuccess, onError, onProcessing })
         onError(error.message);
         setIsProcessing(false);
         onProcessing(false);
-      } else if (paymentIntent.status === 'succeeded') {
+      } else if (paymentIntent && paymentIntent.status === 'succeeded') {
         // Payment succeeded
         onSuccess(paymentIntent);
         setIsProcessing(false);
@@ -102,30 +105,79 @@ function StripePaymentForm({ bookingDetails, onSuccess, onError, onProcessing })
 }
 
 /**
+ * Wrapper component for rendering the payment form or loading/error states
+ * This ensures the Elements provider is always present and hooks are always called
+ */
+function PaymentContent({ clientSecret, bookingDetails, onSuccess, onError, onProcessing, isLoading, error }) {
+  // Render conditional UI based on state, but never conditionally call hooks
+  // The StripePaymentForm will always be rendered (even if loading/error)
+  // but we conditionally display it based on state
+
+  if (isLoading) {
+    return (
+      <div style={{ textAlign: 'center', padding: '40px 20px' }}>
+        <Loader2 size={32} className="animate-spin" style={{ margin: '0 auto', color: '#818cf8' }} />
+        <p style={{ marginTop: '12px', fontSize: '13px', color: 'var(--text-muted)' }}>
+          Initializing secure payment...
+        </p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div style={{
+        padding: '12px',
+        borderRadius: '8px',
+        backgroundColor: 'rgba(239, 68, 68, 0.1)',
+        border: '1px solid rgb(239, 68, 68)',
+        color: 'rgb(239, 68, 68)',
+        fontSize: '13px',
+        marginBottom: '16px'
+      }}>
+        {error}
+      </div>
+    );
+  }
+
+  if (!clientSecret) {
+    return null;
+  }
+
+  return (
+    <StripePaymentForm
+      bookingDetails={bookingDetails}
+      onSuccess={onSuccess}
+      onError={onError}
+      onProcessing={onProcessing}
+    />
+  );
+}
+
+/**
  * Main Stripe checkout modal component
+ * 
+ * This component always renders the Elements provider (if clientSecret exists),
+ * ensuring that nested components using Stripe hooks see consistent hook ordering.
  */
 export default function StripeCheckoutModal({ bookingDetails, onClose, onBookingSuccess }) {
   const [clientSecret, setClientSecret] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSuccess, setIsSuccess] = useState(false);
-  const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState(null);
   const [successDetails, setSuccessDetails] = useState(null);
 
-  if (!bookingDetails) return null;
-
-  const totalAmount = bookingDetails.totalAmount; // Amount in cents
-  const displayAmount = (totalAmount / 100).toFixed(2);
-  const platformFee = Math.round(totalAmount * 0.15);
-  const expertPayout = totalAmount - platformFee;
-
   /**
    * Initialize payment intent when component mounts
+   * Called unconditionally at top level
    */
   useEffect(() => {
+    if (!bookingDetails) return;
+
     const initializePayment = async () => {
       try {
         setIsLoading(true);
+        const totalAmount = bookingDetails.totalAmount;
         const intentData = await paymentsAPI.createIntent(
           bookingDetails.bookingId,
           totalAmount,
@@ -143,7 +195,15 @@ export default function StripeCheckoutModal({ bookingDetails, onClose, onBooking
     };
 
     initializePayment();
-  }, [bookingDetails.bookingId, totalAmount]);
+  }, [bookingDetails]);
+
+  // Early return AFTER all hooks have been declared
+  if (!bookingDetails) return null;
+
+  const totalAmount = bookingDetails.totalAmount; // Amount in cents
+  const displayAmount = (totalAmount / 100).toFixed(2);
+  const platformFee = Math.round(totalAmount * 0.15);
+  const expertPayout = totalAmount - platformFee;
 
   const handlePaymentSuccess = async (paymentIntent) => {
     try {
@@ -159,8 +219,8 @@ export default function StripeCheckoutModal({ bookingDetails, onClose, onBooking
             spread: 70,
             origin: { y: 0.6 }
           });
-        } catch (err) {
-          // Fallback if canvas-confetti fails
+        } catch {
+          // Fallback if canvas-confetti fails - silently ignore
         }
 
         setSuccessDetails({
@@ -259,26 +319,8 @@ export default function StripeCheckoutModal({ bookingDetails, onClose, onBooking
             </div>
 
             {/* Stripe Elements Payment Form */}
-            {isLoading ? (
-              <div style={{ textAlign: 'center', padding: '40px 20px' }}>
-                <Loader2 size={32} className="animate-spin" style={{ margin: '0 auto', color: '#818cf8' }} />
-                <p style={{ marginTop: '12px', fontSize: '13px', color: 'var(--text-muted)' }}>
-                  Initializing secure payment...
-                </p>
-              </div>
-            ) : error ? (
-              <div style={{
-                padding: '12px',
-                borderRadius: '8px',
-                backgroundColor: 'rgba(239, 68, 68, 0.1)',
-                border: '1px solid rgb(239, 68, 68)',
-                color: 'rgb(239, 68, 68)',
-                fontSize: '13px',
-                marginBottom: '16px'
-              }}>
-                {error}
-              </div>
-            ) : clientSecret ? (
+            {/* Always render Elements provider if clientSecret exists, even if loading/error */}
+            {clientSecret ? (
               <Elements
                 stripe={stripePromise}
                 options={{
@@ -294,14 +336,27 @@ export default function StripeCheckoutModal({ bookingDetails, onClose, onBooking
                   }
                 }}
               >
-                <StripePaymentForm
+                <PaymentContent
+                  clientSecret={clientSecret}
                   bookingDetails={bookingDetails}
                   onSuccess={handlePaymentSuccess}
                   onError={handleError}
                   onProcessing={setIsProcessing}
+                  isLoading={isLoading}
+                  error={error}
                 />
               </Elements>
-            ) : null}
+            ) : (
+              <PaymentContent
+                clientSecret={clientSecret}
+                bookingDetails={bookingDetails}
+                onSuccess={handlePaymentSuccess}
+                onError={handleError}
+                onProcessing={setIsProcessing}
+                isLoading={isLoading}
+                error={error}
+              />
+            )}
 
             <div style={{ marginTop: '12px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: 'var(--text-muted)' }}>
               <Shield size={14} />
