@@ -11,13 +11,14 @@ import {
   Loader2,
   X,
 } from 'lucide-react';
+import client from '../../api/client.js';
 import paymentsAPI from '../../api/payments.js';
 
 /**
  * Admin Payment Management Component
  * 
  * Admin-only view for managing payments, refunds, and financial reconciliation:
- * - View all payments with commission breakdown (15% platform / 85% expert)
+ * - View all payments from backend with real data
  * - Filter by status, booking, client, or expert
  * - Process refunds with reason tracking
  * - View payout settlement history
@@ -28,20 +29,21 @@ export default function AdminPaymentManagement() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all'); // all, succeeded, failed, refunded, pending
+  const [statusFilter, setStatusFilter] = useState('all'); // all, completed, failed, refunded, pending
   const [selectedPayment, setSelectedPayment] = useState(null);
   const [showRefundModal, setShowRefundModal] = useState(false);
   const [refundAmount, setRefundAmount] = useState('');
   const [refundReason, setRefundReason] = useState('customer_requested');
   const [isProcessingRefund, setIsProcessingRefund] = useState(false);
   const [refundSuccess, setRefundSuccess] = useState(null);
+  const [pagination, setPagination] = useState({ page: 1, limit: 20, total: 0, pages: 0 });
 
   /**
    * Load payments on mount
    */
   useEffect(() => {
     loadPayments();
-  }, []);
+  }, [pagination.page]);
 
   /**
    * Filter payments when search or filter changes
@@ -55,64 +57,23 @@ export default function AdminPaymentManagement() {
       setIsLoading(true);
       setError(null);
 
-      // This would call a backend endpoint to get all payments
-      // For now, we'll show the UI ready to integrate with backend
-      // Backend endpoint: GET /api/v1/payments (admin only)
-      // const response = await client.get('/payments');
-      // setPayments(response.data.data);
+      // Call backend endpoint to get all payments
+      const response = await client.get('/payments', {
+        params: {
+          page: pagination.page,
+          limit: pagination.limit,
+          status: statusFilter === 'all' ? undefined : statusFilter,
+          search: searchTerm || undefined
+        }
+      });
 
-      // Mock data for demonstration
-      setPayments([
-        {
-          id: 'pi_1234567890',
-          bookingId: 'booking_001',
-          clientName: 'Sarah Johnson',
-          expertName: 'Dr. Alex Chen',
-          serviceTitle: 'Business Strategy Consultation',
-          amount: 15000, // cents
-          currency: 'USD',
-          status: 'succeeded',
-          platformFee: 2250, // 15%
-          expertPayout: 12750, // 85%
-          createdAt: '2026-11-14T10:30:00Z',
-          settledAt: '2026-11-16T02:00:00Z',
-          refundStatus: null,
-        },
-        {
-          id: 'pi_0987654321',
-          bookingId: 'booking_002',
-          clientName: 'Michael Rodriguez',
-          expertName: 'Sarah Williams',
-          serviceTitle: 'Career Coaching Session',
-          amount: 8000, // cents
-          currency: 'USD',
-          status: 'succeeded',
-          platformFee: 1200,
-          expertPayout: 6800,
-          createdAt: '2026-11-13T14:15:00Z',
-          settledAt: '2026-11-15T02:00:00Z',
-          refundStatus: 'partial',
-          refundAmount: 4000,
-        },
-        {
-          id: 'pi_5555555555',
-          bookingId: 'booking_003',
-          clientName: 'Emma Thompson',
-          expertName: 'James Wilson',
-          serviceTitle: 'Technical Interview Prep',
-          amount: 12000,
-          currency: 'USD',
-          status: 'pending',
-          platformFee: 1800,
-          expertPayout: 10200,
-          createdAt: '2026-11-14T16:45:00Z',
-          settledAt: null,
-          refundStatus: null,
-        },
-      ]);
+      setPayments(response.data.data.payments);
+      setPagination(response.data.data.pagination);
     } catch (err) {
-      setError(err.message || 'Failed to load payments');
+      const message = err.response?.data?.message || err.message || 'Failed to load payments';
+      setError(message);
       console.error('Error loading payments:', err);
+      setPayments([]);
     } finally {
       setIsLoading(false);
     }
@@ -133,9 +94,8 @@ export default function AdminPaymentManagement() {
         p =>
           p.clientName.toLowerCase().includes(term) ||
           p.expertName.toLowerCase().includes(term) ||
-          p.serviceTitle.toLowerCase().includes(term) ||
-          p.id.toLowerCase().includes(term) ||
-          p.bookingId.toLowerCase().includes(term)
+          p.paymentIntentId?.toLowerCase().includes(term) ||
+          p.bookingId?.toLowerCase().includes(term)
       );
     }
 
@@ -174,7 +134,8 @@ export default function AdminPaymentManagement() {
         setRefundSuccess(null);
       }, 2000);
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to process refund');
+      const message = err.response?.data?.message || err.message || 'Failed to process refund';
+      setError(message);
     } finally {
       setIsProcessingRefund(false);
     }
@@ -186,14 +147,14 @@ export default function AdminPaymentManagement() {
     if (refundStatus === 'full') {
       bg = 'rgba(239, 68, 68, 0.1)';
       color = '#ef4444';
-      text = 'Refunded';
+      text = 'Fully Refunded';
     } else if (refundStatus === 'partial') {
       bg = 'rgba(245, 158, 11, 0.1)';
       color = '#f59e0b';
       text = 'Partially Refunded';
     } else {
       switch (status) {
-        case 'succeeded':
+        case 'completed':
           bg = 'rgba(16, 185, 129, 0.1)';
           color = '#10b981';
           text = 'Completed';
@@ -207,6 +168,11 @@ export default function AdminPaymentManagement() {
           bg = 'rgba(239, 68, 68, 0.1)';
           color = '#ef4444';
           text = 'Failed';
+          break;
+        case 'refunded':
+          bg = 'rgba(239, 68, 68, 0.1)';
+          color = '#ef4444';
+          text = 'Refunded';
           break;
         default:
           bg = 'rgba(107, 114, 128, 0.1)';
@@ -229,7 +195,7 @@ export default function AdminPaymentManagement() {
           fontWeight: '600',
         }}
       >
-        {status === 'succeeded' || refundStatus ? (
+        {status === 'completed' || refundStatus ? (
           <CheckCircle2 size={12} />
         ) : (
           <Clock size={12} />
@@ -476,7 +442,7 @@ export default function AdminPaymentManagement() {
                     {formatDate(payment.createdAt)}
                   </td>
                   <td style={{ padding: '12px 8px', textAlign: 'center' }}>
-                    {payment.status === 'succeeded' && !payment.refundStatus && (
+                    {payment.status === 'completed' && !payment.refundStatus && (
                       <button
                         onClick={() => {
                           setSelectedPayment(payment);
@@ -497,6 +463,31 @@ export default function AdminPaymentManagement() {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Pagination */}
+      {pagination.pages > 1 && (
+        <div style={{ display: 'flex', justifyContent: 'center', gap: '8px', marginTop: '20px', alignItems: 'center' }}>
+          <button
+            onClick={() => setPagination(p => ({ ...p, page: Math.max(1, p.page - 1) }))}
+            disabled={pagination.page === 1 || isLoading}
+            className="btn-secondary"
+            style={{ padding: '6px 12px', fontSize: '12px' }}
+          >
+            Previous
+          </button>
+          <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+            Page {pagination.page} of {pagination.pages}
+          </span>
+          <button
+            onClick={() => setPagination(p => ({ ...p, page: Math.min(p.pages, p.page + 1) }))}
+            disabled={pagination.page === pagination.pages || isLoading}
+            className="btn-secondary"
+            style={{ padding: '6px 12px', fontSize: '12px' }}
+          >
+            Next
+          </button>
         </div>
       )}
 

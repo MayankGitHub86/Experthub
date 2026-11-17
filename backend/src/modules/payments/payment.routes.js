@@ -8,7 +8,8 @@ import express from 'express';
 import {
   createPaymentIntent,
   getPaymentStatus,
-  refundPayment
+  refundPayment,
+  listPayments
 } from './payment.controller.js';
 import { handleStripeEvent } from './payment.webhook.controller.js';
 import { authenticate } from '../../middleware/authenticate.js';
@@ -37,6 +38,14 @@ router.get(
 /**
  * Admin Routes
  */
+
+// List all payments (admin only)
+router.get(
+  '/',
+  authenticate,
+  isAdmin,
+  listPayments
+);
 
 // Refund a payment
 router.post(
