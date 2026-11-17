@@ -164,6 +164,7 @@ export default function StripeCheckoutModal({ bookingDetails, onClose, onBooking
   const [clientSecret, setClientSecret] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSuccess, setIsSuccess] = useState(false);
+  const [_isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState(null);
   const [successDetails, setSuccessDetails] = useState(null);
 
