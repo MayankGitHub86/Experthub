@@ -33,10 +33,10 @@ export default function BookingModal({ expert, onClose, onBookingSuccess }) {
   const [createdHold, setCreatedHold] = useState(null);
   const [holdCountdown, setHoldCountdown] = useState(null);
 
-  if (!expert) return null;
-
   // Load expert's services on mount
   useEffect(() => {
+    if (!expert) return;
+
     const loadServices = async () => {
       try {
         setLoading(true);
@@ -52,11 +52,11 @@ export default function BookingModal({ expert, onClose, onBookingSuccess }) {
     };
 
     loadServices();
-  }, [expert._id]);
+  }, [expert?._id]);
 
   // Load availability when date or service changes
   useEffect(() => {
-    if (!selectedService || !selectedDate) return;
+    if (!selectedService || !selectedDate || !expert) return;
 
     const loadAvailability = async () => {
       try {
@@ -76,7 +76,7 @@ export default function BookingModal({ expert, onClose, onBookingSuccess }) {
     };
 
     loadAvailability();
-  }, [selectedService, selectedDate, expert._id]);
+  }, [selectedService, selectedDate, expert?._id]);
 
   // Handle hold countdown
   useEffect(() => {
@@ -186,6 +186,11 @@ export default function BookingModal({ expert, onClose, onBookingSuccess }) {
 
     return days;
   };
+
+  // Early return AFTER all hooks have been called - render nothing if no expert
+  if (!expert) {
+    return null;
+  }
 
   return (
     <div className="exact-booking-overlay" onClick={onClose}>
