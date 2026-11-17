@@ -9,6 +9,31 @@ import { AppError } from '../../middleware/errorHandler.js';
 
 class ExpertService {
   /**
+   * Helper method to transform expert objects
+   * Flattens userId user info to top level
+   */
+  transformExperts(experts) {
+    const isArray = Array.isArray(experts);
+    const expertList = isArray ? experts : [experts];
+    
+    const transformed = expertList.map(expert => {
+      // Convert to plain object to preserve all fields including _id
+      const expertObj = expert.toObject ? expert.toObject() : JSON.parse(JSON.stringify(expert));
+      
+      // Flatten userId nested fields to top level
+      if (expertObj.userId) {
+        expertObj.firstName = expertObj.userId.firstName;
+        expertObj.lastName = expertObj.userId.lastName;
+        expertObj.profilePicture = expertObj.userId.profilePicture;
+      }
+      
+      return expertObj;
+    });
+    
+    return isArray ? transformed : transformed[0];
+  }
+  
+  /**
    * Create expert profile
    */
   async createExpert(userId, expertData) {
@@ -226,8 +251,11 @@ class ExpertService {
       Expert.countDocuments(mongoQuery),
     ]);
     
+    // Transform experts to flatten user info
+    const transformedExperts = this.transformExperts(experts);
+    
     return {
-      experts,
+      experts: transformedExperts,
       pagination: {
         page,
         limit,
@@ -421,7 +449,7 @@ class ExpertService {
       .limit(limit)
       .populate('userId', 'firstName lastName profilePicture');
     
-    return experts;
+    return this.transformExperts(experts);
   }
   
   /**
@@ -438,7 +466,7 @@ class ExpertService {
       .limit(limit)
       .populate('userId', 'firstName lastName profilePicture');
     
-    return experts;
+    return this.transformExperts(experts);
   }
 }
 

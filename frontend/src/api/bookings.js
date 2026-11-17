@@ -163,13 +163,13 @@ export const bookingsAPI = {
       timezone: 'UTC'
     });
     
-    const response = await client.get(`/availability/expert/${expertId}?${query.toString()}`);
-    return response.data.data.slots || [];
+    const response = await client.get(`/experts/${expertId}/availability/slots?${query.toString()}`);
+    return response.data.data?.slots || [];
   },
 
   /**
    * Get all expert's available slots without date filter
-   * GET /api/v1/availability/expert/:expertId/all?serviceId=:id
+   * GET /api/v1/experts/:expertId/availability/slots?serviceId=:id
    * 
    * @param {string} expertId - Expert's MongoDB ObjectId
    * @param {string} serviceId - Service's MongoDB ObjectId
@@ -181,8 +181,8 @@ export const bookingsAPI = {
       timezone: 'UTC'
     });
     
-    const response = await client.get(`/availability/expert/${expertId}/all?${query.toString()}`);
-    return response.data.data.slots || [];
+    const response = await client.get(`/experts/${expertId}/availability/slots?${query.toString()}`);
+    return response.data.data?.slots || [];
   },
 
   /**
