@@ -3974,6 +3974,205 @@ input, textarea, select {
   }
 }
 
+/* ==========================================================================
+   BOOKING MODAL - STEP INDICATOR STYLES
+   ========================================================================== */
+
+.exact-booking-stepper {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  position: relative;
+  padding: 0 16px;
+  margin-bottom: 24px;
+}
+
+.stepper-track-line {
+  position: absolute;
+  left: 31px;
+  top: 32px;
+  bottom: 0;
+  width: 2px;
+  background: linear-gradient(180deg, #8b5cf6 0%, #e5e7eb 100%);
+  z-index: 0;
+}
+
+.stepper-step-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  position: relative;
+  z-index: 1;
+}
+
+.stepper-circle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 2px solid #e5e7eb;
+  color: #64748b;
+  font-weight: 600;
+  font-size: 14px;
+  transition: all 0.3s ease;
+}
+
+.stepper-step-item.current .stepper-circle {
+  background: #8b5cf6;
+  border-color: #8b5cf6;
+  color: #ffffff;
+  box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.1);
+}
+
+.stepper-step-item.completed .stepper-circle {
+  background: #8b5cf6;
+  border-color: #8b5cf6;
+  color: #ffffff;
+}
+
+.stepper-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: #64748b;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+}
+
+.stepper-step-item.current .stepper-title {
+  color: #0f172a;
+  font-weight: 600;
+}
+
+.stepper-step-item.completed .stepper-title {
+  color: #0f172a;
+}
+
+/* Booking Modal Main Container */
+.exact-booking-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.exact-booking-modal-window {
+  position: relative;
+  background: var(--bg-secondary, #ffffff);
+  border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  width: 90%;
+  max-width: 900px;
+  max-height: 90vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  padding: 24px;
+}
+
+.booking-modal-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  background: none;
+  border: none;
+  color: var(--text-muted, #64748b);
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.2s ease;
+  z-index: 10;
+}
+
+.booking-modal-close:hover {
+  color: var(--text-primary, #0f172a);
+}
+
+.exact-booking-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border-subtle, #e2e8f0);
+}
+
+.booking-help-contact {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.help-label {
+  font-size: 13px;
+  color: var(--text-secondary, #475569);
+  font-weight: 500;
+}
+
+.exact-booking-body-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  flex: 1;
+  margin-bottom: 20px;
+}
+
+.booking-left-card,
+.booking-right-card {
+  background: var(--surface-input, #f1f5f9);
+  border: 1px solid var(--border-subtle, #e2e8f0);
+  border-radius: 12px;
+  padding: 16px;
+}
+
+/* Responsive: Single column on smaller screens */
+@media (max-width: 768px) {
+  .exact-booking-modal-window {
+    width: 95%;
+    max-width: 100%;
+    max-height: 95vh;
+    padding: 16px;
+  }
+  
+  .exact-booking-body-grid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  
+  .exact-booking-stepper {
+    flex-direction: row;
+    overflow-x: auto;
+    padding: 0 8px;
+  }
+  
+  .stepper-track-line {
+    display: none;
+  }
+  
+  .stepper-step-item {
+    flex-direction: column;
+    gap: 4px;
+    min-width: max-content;
+  }
+  
+  .stepper-title {
+    font-size: 11px;
+    text-align: center;
+  }
+}
+
 
 /* ==========================================================================
    LANDING PAGE - EXACT STYLES (PREMIUM SAAS DESIGN)
