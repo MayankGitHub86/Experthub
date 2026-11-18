@@ -120,7 +120,9 @@ export default function App() {
 
   // Alias used by BookingModal's onProceedToPayment prop
   const handleProceedToPayment = (bookingData) => {
+    console.log('🟢 App.jsx handleProceedToPayment called with:', bookingData);
     setBookingTarget(null);
+    console.log('  ✅ Setting checkoutTarget:', bookingData);
     setCheckoutTarget(bookingData);
   };
 

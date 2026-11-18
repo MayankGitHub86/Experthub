@@ -43,132 +43,146 @@ class PaymentService {
    */
   async createPaymentIntent(bookingId, clientId, amountCents, currency = 'USD') {
     // Fetch and validate booking
-    const booking = await Booking.findById(bookingId)
-      .populate('serviceId')
-      .populate('expertId')
-      .populate('clientId');
+    let booking;
+    
+    // In development mode with mock data, create a mock booking
+    if (process.env.NODE_ENV === 'development' && bookingId.toString().startsWith('booking-')) {
+      // Mock booking for development
+      booking = {
+        _id: bookingId,
+        clientId: { _id: clientId },
+        expertId: 'dev_expert_123',
+        serviceId: 'dev_service_123',
+        status: 'payment_pending',
+        totalAmount: amountCents / 100,
+        pricing: { currency },
+        bookingNumber: `DEV-${Date.now()}`,
+        payment: {}
+      };
+      
+      logger.info('Development mode: using mock booking for payment intent', {
+        bookingId,
+        amount: amountCents / 100
+      });
+    } else {
+      booking = await Booking.findById(bookingId)
+        .populate('serviceId')
+        .populate('expertId')
+        .populate('clientId');
 
-    if (!booking) {
-      throw new AppError('Booking not found', 404);
-    }
+      if (!booking) {
+        throw new AppError('Booking not found', 404);
+      }
 
-    // Verify client is the one paying
-    if (booking.clientId._id.toString() !== clientId) {
-      throw new AppError('Client mismatch: only the booking client can pay', 403);
-    }
+      // Verify client is the one paying
+      if (booking.clientId._id.toString() !== clientId) {
+        throw new AppError('Client mismatch: only the booking client can pay', 403);
+      }
 
-    // Verify booking is in correct state for payment
-    // Bookings are created in 'payment_pending' status and remain there until payment succeeds
-    if (!['payment_pending', 'confirmed'].includes(booking.status)) {
-      throw new AppError(
-        `Cannot create payment for booking in state: ${booking.status}. Expected: payment_pending or confirmed`,
-        400
-      );
-    }
+      // Verify booking is in correct state for payment
+      if (!['payment_pending', 'confirmed'].includes(booking.status)) {
+        throw new AppError(
+          `Cannot create payment for booking in state: ${booking.status}. Expected: payment_pending or confirmed`,
+          400
+        );
+      }
 
-    // Verify amount matches booking
-    // Note: booking.totalAmount is in currency units (e.g., $100.50 USD)
-    // We convert to cents: $100.50 * 100 = 10050 cents
-    const expectedAmountCents = booking.totalAmount * 100;
-    if (amountCents !== expectedAmountCents) {
-      throw new AppError(
-        `Amount mismatch. Expected: ${expectedAmountCents} cents (${booking.totalAmount} ${currency}), got: ${amountCents} cents`,
-        400
-      );
-    }
+      // Verify amount matches booking
+      const expectedAmountCents = booking.totalAmount * 100;
+      if (amountCents !== expectedAmountCents) {
+        throw new AppError(
+          `Amount mismatch. Expected: ${expectedAmountCents} cents (${booking.totalAmount} ${currency}), got: ${amountCents} cents`,
+          400
+        );
+      }
 
-    // Verify expert is approved
-    const expert = await Expert.findById(booking.expertId);
-    if (!expert) {
-      throw new AppError('Expert profile not found', 404);
-    }
+      // Verify expert is approved
+      const expert = await Expert.findById(booking.expertId);
+      if (!expert) {
+        throw new AppError('Expert profile not found', 404);
+      }
 
-    if (expert.verificationStatus !== 'approved') {
-      throw new AppError(
-        'Expert is not approved for receiving payments. Payment cannot be processed.',
-        403
-      );
-    }
+      if (expert.verificationStatus !== 'approved') {
+        throw new AppError(
+          'Expert is not approved for receiving payments. Payment cannot be processed.',
+          403
+        );
+      }
 
-    // Verify expert has Stripe account
-    if (!expert.stripeAccountId) {
-      throw new AppError(
-        'Expert has not connected their Stripe account. Payment cannot be processed.',
-        400
-      );
-    }
+      // Verify expert has Stripe account
+      if (!expert.stripeAccountId) {
+        throw new AppError(
+          'Expert has not connected their Stripe account. Payment cannot be processed.',
+          400
+        );
+      }
 
-    // Verify expert has card_payments capability enabled (Stripe Accounts v2)
-    // This ensures they can receive funds via destination charges
-    if (!expert.stripeChargesEnabled) {
-      throw new AppError(
-        'Expert account is not ready to receive payments. Card payments capability not verified.',
-        400
-      );
-    }
+      // Verify expert has card_payments capability enabled
+      if (!expert.stripeChargesEnabled) {
+        throw new AppError(
+          'Expert account is not ready to receive payments. Card payments capability not verified.',
+          400
+        );
+      }
 
-    // For v2: Verify merchant.card_payments capability explicitly
-    // (Note: This requires syncing with Stripe; currently only checked via stripeChargesEnabled flag)
-    if (!expert.stripeAccountCapabilities || !expert.stripeAccountCapabilities.card_payments) {
-      throw new AppError(
-        'Expert Stripe account has not enabled card payment capability. Please verify your Stripe account.',
-        400
-      );
+      if (!expert.stripeAccountCapabilities || !expert.stripeAccountCapabilities.card_payments) {
+        throw new AppError(
+          'Expert Stripe account has not enabled card payment capability. Please verify your Stripe account.',
+          400
+        );
+      }
     }
 
     // Calculate commission split
     const split = CommissionCalculator.calculateSplit(amountCents, currency);
 
-    // Prepare metadata for Stripe and future reconciliation
+    // Prepare metadata
     const metadata = {
       bookingId: bookingId.toString(),
       clientId: clientId.toString(),
-      expertId: booking.expertId._id.toString(),
-      serviceId: booking.serviceId._id.toString(),
+      expertId: booking.expertId._id?.toString() || booking.expertId,
+      serviceId: booking.serviceId?._id?.toString() || booking.serviceId || 'dev_service_123',
       platformCommission: split.platformCommission.toString(),
       expertShare: split.expertShare.toString(),
       bookingNumber: booking.bookingNumber || 'pending'
     };
 
     try {
+      // For development/mock bookings, create a mock payment intent
+      if (process.env.NODE_ENV === 'development' && bookingId.toString().startsWith('booking-')) {
+        const mockPaymentIntent = {
+          id: `pi_dev_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+          client_secret: `pi_dev_secret_${Date.now()}_${Math.random().toString(36).substring(2, 18)}`,
+          amount: amountCents,
+          currency: currency.toLowerCase(),
+          status: 'requires_payment_method',
+          metadata
+        };
+        
+        logger.info('Development mode: created mock payment intent', {
+          paymentIntentId: mockPaymentIntent.id,
+          amount: amountCents
+        });
+        
+        return mockPaymentIntent;
+      }
+
       // Create payment intent with destination charge using adapter
-      // Stripe will:
-      // 1. Charge the full amount to platform account
-      // 2. Take application fee (15%)
-      // 3. Transfer remainder (85%) to expert's connected account
       const paymentIntent = await this.adapter.createPaymentIntent({
         amount: amountCents,
         currency: currency.toLowerCase(),
-        
-        // Destination charge: transfer to expert's connected account
         transfer_data: {
-          destination: expert.stripeAccountId
+          destination: booking.expertId.stripeAccountId
         },
-        
-        // Platform application fee: 15%
         application_fee_amount: split.platformCommission,
-        
-        // Payment method types
         payment_method_types: ['card'],
-        
-        // Confirm payment in test: can use test cards
         confirm: false,
         return_url: `${config.baseUrl}/bookings/${bookingId}`,
-        
-        // Metadata for reconciliation
         metadata,
-        
-        // Description for Stripe dashboard
         description: `ExpertHub Booking: ${booking.bookingNumber || bookingId}`,
-        
-        // Customer: optional, can be used for recurring charges
         customer: await this._getOrCreateStripeCustomer(booking.clientId),
-        
-        // Statement descriptor for credit card statement
         statement_descriptor: 'EXPERTHUB CONSULTATION'
       }, {
-        // Idempotency key: prevent duplicate charges on retry
-        // Pass as request options, not as parameter
         idempotencyKey: `booking_${bookingId}_${Date.now()}`
       });
 
@@ -176,7 +190,7 @@ class PaymentService {
         paymentIntentId: paymentIntent.id,
         bookingId,
         amount: amountCents,
-        expertId: expert._id
+        expertId: booking.expertId._id
       });
 
       return paymentIntent;

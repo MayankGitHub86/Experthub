@@ -208,6 +208,8 @@ export default function StripeCheckoutModal({ bookingDetails, onClose, onBooking
   const [stripeInstance, setStripeInstance] = useState(null);
   const [stripeError, setStripeError] = useState(null);
 
+  console.log('🔴 StripeCheckoutModal: Mounted with bookingDetails:', bookingDetails);
+
   /**
    * Initialize Stripe on component mount
    */
@@ -233,7 +235,10 @@ export default function StripeCheckoutModal({ bookingDetails, onClose, onBooking
    * Called unconditionally at top level
    */
   useEffect(() => {
-    if (!bookingDetails || !stripeInstance) return;
+    if (!bookingDetails || !stripeInstance) {
+      console.log('⏭️  Skip payment intent creation: bookingDetails=', !!bookingDetails, 'stripeInstance=', !!stripeInstance);
+      return;
+    }
 
     console.log('💳 StripeCheckoutModal: Creating payment intent');
     console.log(`   Booking ID: ${bookingDetails.bookingId}`);
@@ -243,6 +248,7 @@ export default function StripeCheckoutModal({ bookingDetails, onClose, onBooking
       try {
         setIsLoading(true);
         const totalAmount = bookingDetails.totalAmount;
+        console.log('   📞 Calling paymentsAPI.createIntent...');
         const intentData = await paymentsAPI.createIntent(
           bookingDetails.bookingId,
           totalAmount,
@@ -250,6 +256,7 @@ export default function StripeCheckoutModal({ bookingDetails, onClose, onBooking
         );
 
         console.log('✅ PaymentIntent created:', intentData.id?.substring(0, 20) + '...');
+        console.log('   clientSecret:', intentData.clientSecret?.substring(0, 20) + '...');
         setClientSecret(intentData.clientSecret);
         setError(null);
       } catch (err) {

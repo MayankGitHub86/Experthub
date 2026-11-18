@@ -15,6 +15,26 @@ export const authenticate = async (req, res, next) => {
     const authHeader = req.headers.authorization;
     
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      // In development mode, allow a mock dev token for testing
+      if (config.isDevelopment) {
+        const devToken = req.headers.authorization?.split(' ')[1];
+        if (devToken && devToken.startsWith('dev_mock_token_')) {
+          // Create a mock user for development
+          req.user = {
+            _id: 'dev_user_123',
+            id: 'dev_user_123',
+            email: 'dev@experthub.com',
+            firstName: 'Dev',
+            lastName: 'User',
+            role: 'client',
+            status: 'active'
+          };
+          req.userId = req.user._id;
+          logger.info('Development mode: using mock user for payment API', { userId: req.user._id });
+          return next();
+        }
+      }
+      
       return res.status(401).json({
         status: 'error',
         code: 'UNAUTHORIZED',
@@ -23,6 +43,22 @@ export const authenticate = async (req, res, next) => {
     }
     
     const token = authHeader.split(' ')[1];
+    
+    // Development mode: allow dev_mock_token_* without verification
+    if (config.isDevelopment && token.startsWith('dev_mock_token_')) {
+      req.user = {
+        _id: 'dev_user_123',
+        id: 'dev_user_123',
+        email: 'dev@experthub.com',
+        firstName: 'Dev',
+        lastName: 'User',
+        role: 'client',
+        status: 'active'
+      };
+      req.userId = req.user._id;
+      logger.info('Development mode: using mock user', { userId: req.user._id });
+      return next();
+    }
     
     // Verify token
     let decoded;

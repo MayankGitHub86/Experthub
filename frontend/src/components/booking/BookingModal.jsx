@@ -286,15 +286,23 @@ export default function BookingModal({ expert, initialPackage, onClose, onBookin
   };
 
   const handleProceedPayment = () => {
+    console.log('🔵 handleProceedPayment called');
+    console.log('  onProceedToPayment callback exists:', !!onProceedToPayment);
+    console.log('  confirmedBooking:', confirmedBooking);
+    
     if (onProceedToPayment && confirmedBooking) {
-      onProceedToPayment({
+      const paymentData = {
         bookingId: confirmedBooking._id,
         totalAmount: Math.round((confirmedBooking.totalAmount || (selectedService?.pricing?.amount || 100)) * 100),
         currency: selectedService?.pricing?.currency || 'USD',
         expertName: expert.name || `${expert.firstName || ''} ${expert.lastName || ''}`.trim() || 'Expert',
         scheduledAt: selectedSlot?.startTime ? new Date(selectedSlot.startTime).toLocaleString() : new Date().toLocaleString(),
         clientEmail: ''
-      });
+      };
+      console.log('  📤 Calling onProceedToPayment with:', paymentData);
+      onProceedToPayment(paymentData);
+    } else {
+      console.warn('  ❌ Cannot proceed: missing callback or booking');
     }
   };
 
