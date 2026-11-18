@@ -78,14 +78,22 @@ export default function AuthModal({ isOpen, onClose, onAuthenticate, initialMode
     try {
       if (mode === 'login') {
         // Call real login API
+        console.log('[AuthModal] Starting login with:', { email: formData.email });
         const result = await authAPI.login(formData.email, formData.password);
+        console.log('[AuthModal] Login success, received:', { 
+          user: result.user, 
+          hasAccessToken: !!result.accessToken,
+          hasRefreshToken: !!result.refreshToken 
+        });
         
         // Store tokens
         localStorage.setItem('accessToken', result.accessToken);
         localStorage.setItem('refreshToken', result.refreshToken);
         localStorage.setItem('user', JSON.stringify(result.user));
+        console.log('[AuthModal] Tokens stored in localStorage');
 
         // Call parent callback
+        console.log('[AuthModal] Calling onAuthenticate callback');
         onAuthenticate({
           name: result.user.firstName || result.user.email.split('@')[0],
           email: result.user.email,

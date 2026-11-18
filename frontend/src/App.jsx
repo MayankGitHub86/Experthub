@@ -133,6 +133,11 @@ export default function App() {
     document.documentElement.setAttribute('data-theme', theme);
   }, [theme]);
 
+  // Debug authentication state changes
+  useEffect(() => {
+    console.log('[App.jsx] isAuthenticated changed:', isAuthenticated, 'activeTab:', activeTab);
+  }, [isAuthenticated, activeTab]);
+
   const handleStartBooking = (expert, pkg = null) => {
     setSelectedExpertForProfile(null);
     setBookingTarget({ expert, selectedPackage: pkg });
@@ -174,9 +179,11 @@ export default function App() {
   };
 
   const handleLoginSuccess = (user) => {
+    console.log('[App.jsx] handleLoginSuccess called with:', user);
     setCurrentUser(user);
     setUserRole(user.role);
     setIsAuthenticated(true);
+    console.log('[App.jsx] isAuthenticated set to true, activeTab being set to dashboard');
     setIsAuthOpen(false);
     setActiveTab('dashboard');
   };
