@@ -98,7 +98,7 @@ export default function TopHeader({
     ? ["May 1 - May 31, 2024", "Apr 1 - Apr 30, 2024", "Last 7 Days", "Year to Date (2024)"]
     : ["May 12 - Jun 10, 2026", "Last 7 Days (Jun 3 - Jun 10)", "Last 30 Days", "Year to Date (2026)"];
 
-  const activeDatePill = isLight ? (dateRange.includes('2024') ? dateRange : 'May 1 - May 31, 2024') : dateRange;
+  const activeDatePill = dateRange || 'Last 30 Days';
 
   return (
     <header className="top-header" style={{
