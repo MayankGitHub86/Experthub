@@ -221,22 +221,13 @@ export default function BookingModal({ expert, initialPackage, onClose, onBookin
       setLoading(true);
       setError(null);
       
-      let hold;
-      if (expertId && String(expertId).match(/^[0-9a-fA-F]{24}$/) &&
-          selectedService._id && String(selectedService._id).match(/^[0-9a-fA-F]{24}$/)) {
-        hold = await bookingsAPI.createHold(
-          expertId,
-          selectedService._id,
-          selectedSlot.startTime,
-          'UTC'
-        );
-      } else {
-        // Mock hold for non-ObjectId test instances
-        hold = {
-          _id: `mock-hold-${Date.now()}`,
-          expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString()
-        };
-      }
+      // Always use real API
+      const hold = await bookingsAPI.createHold(
+        expertId,
+        selectedService._id,
+        selectedSlot.startTime,
+        'UTC'
+      );
       
       setCreatedHold(hold);
       setStep(3); // Move to confirmation
@@ -258,17 +249,8 @@ export default function BookingModal({ expert, initialPackage, onClose, onBookin
       setLoading(true);
       setError(null);
 
-      let booking;
-      if (createdHold._id && !createdHold._id.startsWith('mock-')) {
-        booking = await bookingsAPI.confirmBooking(createdHold._id, clientNotes);
-      } else {
-        booking = {
-          _id: `booking-${Date.now()}`,
-          status: 'payment_pending',
-          totalAmount: (selectedService.pricing?.amount || 100) * 1.15,
-          scheduledAt: selectedSlot?.startTime || new Date().toISOString()
-        };
-      }
+      // Always use the real API - no fallback to mock
+      const booking = await bookingsAPI.confirmBooking(createdHold._id, clientNotes);
       
       setConfirmedBooking(booking);
       setStep(4); // Success step

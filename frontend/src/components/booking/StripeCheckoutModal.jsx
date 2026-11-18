@@ -214,11 +214,11 @@ export default function StripeCheckoutModal({ bookingDetails, onClose, onBooking
    * Initialize Stripe on component mount
    */
   useEffect(() => {
-    console.log('🔄 StripeCheckoutModal: Mounting, initializing Stripe...');
+    console.log('🔄 StripeCheckoutModal: Initializing Stripe...');
     
     getStripePromise()
       .then(stripe => {
-        console.log('✅ Stripe initialized successfully');
+        console.log('✅ Stripe initialized');
         setStripeInstance(stripe);
         setStripeError(null);
       })
@@ -231,33 +231,27 @@ export default function StripeCheckoutModal({ bookingDetails, onClose, onBooking
   }, []);
 
   /**
-   * Initialize payment intent when component mounts and booking details are available
-   * Called unconditionally at top level
+   * Create PaymentIntent when component mounts and booking details are available
    */
   useEffect(() => {
     if (!bookingDetails || !stripeInstance) {
-      console.log('⏭️  Skip payment intent creation: bookingDetails=', !!bookingDetails, 'stripeInstance=', !!stripeInstance);
       return;
     }
 
-    console.log('💳 StripeCheckoutModal: Creating payment intent');
-    console.log(`   Booking ID: ${bookingDetails.bookingId}`);
-    console.log(`   Amount: $${(bookingDetails.totalAmount / 100).toFixed(2)}`);
+    console.log('💳 Creating PaymentIntent for booking:', bookingDetails.bookingId);
 
     const initializePayment = async () => {
       try {
         setIsLoading(true);
         const totalAmount = bookingDetails.totalAmount;
-        console.log('   📞 Calling paymentsAPI.createIntent...');
-        const intentData = await paymentsAPI.createIntent(
+        const response = await paymentsAPI.createIntent(
           bookingDetails.bookingId,
           totalAmount,
           bookingDetails.currency || 'USD'
         );
 
-        console.log('✅ PaymentIntent created:', intentData.id?.substring(0, 20) + '...');
-        console.log('   clientSecret:', intentData.clientSecret?.substring(0, 20) + '...');
-        setClientSecret(intentData.clientSecret);
+        console.log('✅ PaymentIntent created:', response.id);
+        setClientSecret(response.client_secret);
         setError(null);
       } catch (err) {
         const errMsg = err.response?.data?.message || 'Failed to initialize payment. Please try again.';
@@ -467,9 +461,12 @@ export default function StripeCheckoutModal({ bookingDetails, onClose, onBooking
                     theme: 'stripe',
                     variables: {
                       colorPrimary: '#818cf8',
-                      colorBackground: 'var(--surface-input)',
-                      colorText: 'var(--text-primary)',
+                      colorBackground: '#ffffff',
+                      colorText: '#1f2937',
                       colorDanger: '#ef4444',
+                      fontFamily: '"Inter", "system-ui", "sans-serif"',
+                      fontSize: '14px',
+                      borderRadius: '8px'
                     }
                   }
                 }}

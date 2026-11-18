@@ -21,20 +21,11 @@ const client = axios.create({
 
 /**
  * Request interceptor - Add JWT token to headers
+ * ONLY uses genuine authentication tokens from localStorage
  */
 client.interceptors.request.use(
   (config) => {
-    let token = localStorage.getItem('accessToken');
-    
-    // For development/demo: use a mock token if no real token exists
-    if (!token && import.meta.env.DEV) {
-      token = localStorage.getItem('devMockToken');
-      if (!token) {
-        // Create a simple mock token for development
-        token = `dev_mock_token_${Date.now()}`;
-        localStorage.setItem('devMockToken', token);
-      }
-    }
+    const token = localStorage.getItem('accessToken');
     
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
