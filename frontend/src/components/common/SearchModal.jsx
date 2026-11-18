@@ -37,6 +37,8 @@ export default function SearchModal({ isOpen, onClose, onSelectExpert, onNavigat
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '12px', marginBottom: '12px' }}>
           <Search size={18} color="var(--accent-purple-light)" />
           <input 
+            id="search-modal-input"
+            name="search"
             type="text"
             placeholder="Search experts, skills, bookings, or jump to..."
             value={query}
