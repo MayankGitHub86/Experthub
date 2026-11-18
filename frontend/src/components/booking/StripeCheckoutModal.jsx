@@ -208,6 +208,15 @@ export default function StripeCheckoutModal({ bookingDetails, onClose, onBooking
   const [stripeInstance, setStripeInstance] = useState(null);
   const [stripeError, setStripeError] = useState(null);
 
+  // Guard against null or invalid bookingDetails
+  useEffect(() => {
+    if (!bookingDetails || !bookingDetails.bookingId) {
+      console.warn('⚠️ StripeCheckoutModal: Invalid or missing bookingDetails');
+      setError('Invalid booking data. Please try again.');
+      setIsLoading(false);
+    }
+  }, [bookingDetails]);
+
   /**
    * Initialize Stripe on component mount
    * Only initialize if bookingDetails exists
@@ -264,11 +273,13 @@ export default function StripeCheckoutModal({ bookingDetails, onClose, onBooking
     initializePayment();
   }, [bookingDetails, stripeInstance]);
 
-  // Early return AFTER all hooks have been declared
-  if (!bookingDetails) return null;
+  // Early return if no valid bookingDetails
+  if (!bookingDetails || !bookingDetails.bookingId) {
+    return null;
+  }
 
-  // Show Stripe initialization error
-  if (stripeError && !clientSecret) {
+  // Show error state if there's an issue
+  if (error && !clientSecret) {
     return (
       <div className="modal-overlay" onClick={onClose}>
         <div
@@ -294,11 +305,11 @@ export default function StripeCheckoutModal({ bookingDetails, onClose, onBooking
               <AlertTriangle size={16} />
             </div>
             <div>
-              <h3 style={{ fontSize: '17px', fontWeight: '700', color: 'var(--text-primary)' }}>
-                Configuration Error
+              <h3 style={{ fontSize: '17px', fontWeight: '700', color: '#1f2937' }}>
+                Error
               </h3>
-              <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                Payment system unavailable
+              <div style={{ fontSize: '11px', color: '#6b7280' }}>
+                Payment setup failed
               </div>
             </div>
           </div>
@@ -312,11 +323,11 @@ export default function StripeCheckoutModal({ bookingDetails, onClose, onBooking
             fontSize: '13px',
             marginBottom: '16px'
           }}>
-            {stripeError}
+            {error}
           </div>
 
-          <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '16px' }}>
-            Please contact support if this error persists.
+          <p style={{ fontSize: '13px', color: '#6b7280', marginBottom: '16px' }}>
+            Please close this dialog and try again. If the problem persists, please contact support.
           </p>
 
           <button
