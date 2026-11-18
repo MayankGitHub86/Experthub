@@ -208,17 +208,16 @@ export default function StripeCheckoutModal({ bookingDetails, onClose, onBooking
   const [stripeInstance, setStripeInstance] = useState(null);
   const [stripeError, setStripeError] = useState(null);
 
-  console.log('🔴 StripeCheckoutModal: Mounted with bookingDetails:', bookingDetails);
-
   /**
    * Initialize Stripe on component mount
+   * Only initialize if bookingDetails exists
    */
   useEffect(() => {
-    console.log('🔄 StripeCheckoutModal: Initializing Stripe...');
+    if (!bookingDetails) return;
     
     getStripePromise()
       .then(stripe => {
-        console.log('✅ Stripe initialized');
+        console.log('✅ Stripe initialized for booking:', bookingDetails.bookingId);
         setStripeInstance(stripe);
         setStripeError(null);
       })
@@ -228,7 +227,7 @@ export default function StripeCheckoutModal({ bookingDetails, onClose, onBooking
         setStripeError(errMsg);
         setIsLoading(false);
       });
-  }, []);
+  }, [bookingDetails]);
 
   /**
    * Create PaymentIntent when component mounts and booking details are available

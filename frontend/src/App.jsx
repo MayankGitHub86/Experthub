@@ -400,11 +400,13 @@ export default function App() {
         onProceedToPayment={handleProceedToPayment}
       />
 
-      <StripeCheckoutModal 
-        bookingDetails={checkoutTarget}
-        onClose={() => setCheckoutTarget(null)}
-        onBookingSuccess={handleBookingSuccess}
-      />
+      {checkoutTarget && (
+        <StripeCheckoutModal 
+          bookingDetails={checkoutTarget}
+          onClose={() => setCheckoutTarget(null)}
+          onBookingSuccess={handleBookingSuccess}
+        />
+      )}
     </div>
     </ErrorBoundary>
   );
