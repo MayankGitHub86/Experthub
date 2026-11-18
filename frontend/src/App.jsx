@@ -30,6 +30,8 @@ import ConsultationChat from './components/chat/ConsultationChat';
 // Financials, Orders, Products, Analytics, Settings
 import PayoutsManager from './components/financials/PayoutsManager';
 import OrdersView from './components/orders/OrdersView';
+import SalesView from './components/sales/SalesView';
+import CustomersView from './components/customers/CustomersView';
 import ProductsView from './components/products/ProductsView';
 import AnalyticsView from './components/analytics/AnalyticsView';
 import SettingsView from './components/settings/SettingsView';
@@ -49,19 +51,40 @@ import { mockExperts } from './data/mockExperts';
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [theme, setTheme] = useState('light'); // default to light to showcase the new MetricFlow white mode or toggle
-  const [userRole, setUserRole] = useState('admin');
-  const [dateRange, setDateRange] = useState('May 1 - May 31, 2024');
-
-  // Authentication & Landing state
-  const [currentUser, setCurrentUser] = useState({
-    name: 'Alex Morgan',
-    email: 'admin@nexora.com',
-    role: 'admin',
-    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80'
+  const [currentUser, setCurrentUser] = useState(() => {
+    try {
+      const stored = localStorage.getItem('user');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        return {
+          name: parsed.firstName ? `${parsed.firstName} ${parsed.lastName || ''}`.trim() : parsed.email,
+          email: parsed.email,
+          role: parsed.role || 'admin',
+          avatar: parsed.profilePicture || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80',
+          ...parsed
+        };
+      }
+    } catch {}
+    return {
+      name: 'Alex Morgan',
+      email: 'admin@experthub.com',
+      role: 'admin',
+      avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80'
+    };
+  });
+  const [userRole, setUserRole] = useState(() => {
+    try {
+      const stored = localStorage.getItem('user');
+      if (stored) return JSON.parse(stored).role || 'admin';
+    } catch {}
+    return 'admin';
   });
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
-    if (typeof window !== 'undefined' && (window.location.hash === '#app' || window.location.hash === '#dashboard')) {
-      return true;
+    if (typeof window !== 'undefined') {
+      if (localStorage.getItem('accessToken')) return true;
+      if (window.location.hash === '#app' || window.location.hash === '#dashboard') {
+        return true;
+      }
     }
     return false;
   });
@@ -157,6 +180,11 @@ export default function App() {
   };
 
   const handleLogout = () => {
+    try {
+      localStorage.removeItem('accessToken');
+      localStorage.removeItem('refreshToken');
+      localStorage.removeItem('user');
+    } catch {}
     setIsAuthenticated(false);
     setCurrentUser(null);
     setActiveTab('dashboard');
@@ -172,7 +200,7 @@ export default function App() {
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `MetricFlow_Export_${Date.now()}.csv`);
+    link.setAttribute("download", `ExpertHub_Export_${Date.now()}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -228,6 +256,7 @@ export default function App() {
         setTheme={setTheme}
         onOpenUpgrade={() => setIsUpgradeOpen(true)}
         currentUser={currentUser}
+        userRole={userRole}
         onLogout={handleLogout}
         isOpen={isMobileMenuOpen}
         onClose={() => setIsMobileMenuOpen(false)}
@@ -268,6 +297,7 @@ export default function App() {
             ) : userRole === 'client' ? (
               <ClientPortal
                 theme={theme}
+                currentUser={currentUser}
                 onBook={handleStartBooking}
                 onViewProfile={(expert) => setSelectedExpertForProfile(expert)}
                 onJoinSession={(booking) => {
@@ -305,13 +335,17 @@ export default function App() {
             )
           )}
 
-          {/* VIEW: EXPERT MARKETPLACE & CUSTOMERS */}
+          {/* VIEW: EXPERT MARKETPLACE (CLIENT) & CUSTOMERS MANAGEMENT (ADMIN) */}
           {activeTab === 'customers' && (
-            <ExpertGrid 
-              onBook={(expert) => handleStartBooking(expert)}
-              onViewProfile={(expert) => setSelectedExpertForProfile(expert)}
-              onOpenAIMatcher={() => setActiveTab('ai-matcher')}
-            />
+            userRole === 'admin' ? (
+              <CustomersView />
+            ) : (
+              <ExpertGrid 
+                onBook={(expert) => handleStartBooking(expert)}
+                onViewProfile={(expert) => setSelectedExpertForProfile(expert)}
+                onOpenAIMatcher={() => setActiveTab('ai-matcher')}
+              />
+            )
           )}
 
           {/* VIEW: PRODUCTS & SERVICE PACKAGES */}
@@ -319,13 +353,17 @@ export default function App() {
             <ProductsView onBookService={() => handleStartBooking(mockExperts[0])} />
           )}
 
-          {/* VIEW: ORDERS & BOOKINGS / SALES */}
+          {/* VIEW: ORDERS & BOOKINGS (CLIENT/EXPERT) / SALES LEDGER (ADMIN) */}
           {activeTab === 'orders' && (
-            <OrdersView onJoinSession={(booking) => {
-              const matched = mockExperts.find(e => e.id === booking.expertId) || mockExperts[0];
-              setActiveChatExpert(matched);
-              setActiveTab('chat');
-            }} />
+            userRole === 'admin' ? (
+              <SalesView />
+            ) : (
+              <OrdersView onJoinSession={(booking) => {
+                const matched = mockExperts.find(e => e.id === booking.expertId) || mockExperts[0];
+                setActiveChatExpert(matched);
+                setActiveTab('chat');
+              }} />
+            )
           )}
 
           {/* VIEW: AI MATCHING AGENT / MARKETING */}

@@ -16,6 +16,7 @@ import serviceRoutes from './modules/services/service.routes.js';
 import bookingRoutes from './modules/bookings/booking.routes.js';
 import chatModuleRoutes from './modules/chat/chat.routes.js';
 import paymentModuleRoutes from './modules/payments/payment.routes.js';
+import userRoutes from './modules/users/user.routes.js';
 
 // Import legacy routes (to be refactored)
 import aiRoutes from '../routes/ai.js';
@@ -114,6 +115,7 @@ app.use('/api/v1/services', ...apiMiddleware, serviceRoutes);
 app.use('/api/v1/bookings', ...apiMiddleware, bookingRoutes);
 app.use('/api/v1/chat', ...apiMiddleware, chatModuleRoutes);
 app.use('/api/v1/payments', ...apiMiddleware, paymentModuleRoutes);
+app.use('/api/v1/users', ...apiMiddleware, userRoutes);
 
 // Legacy routes (to be refactored into modules)
 app.use('/api/ai', ...authMiddleware, aiRoutes);

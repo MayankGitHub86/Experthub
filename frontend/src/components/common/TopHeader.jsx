@@ -199,7 +199,7 @@ export default function TopHeader({
           )}
         </div>
 
-        {/* Light Mode: Export Action Button (matching MetricFlow reference) */}
+        {/* Export Action Button */}
         {isLight && (
           <button 
             onClick={onExport}
@@ -264,7 +264,7 @@ export default function TopHeader({
           <span>Landing Page</span>
         </button>
 
-        {/* Help Circle Icon (as in MetricFlow reference) */}
+        {/* Help Circle Icon */}
         {isLight && (
           <button 
             style={{
@@ -310,7 +310,7 @@ export default function TopHeader({
               <div className="user-details">
                 <div className="user-name">Alex Morgan</div>
                 <div className="user-role">
-                  {userRole === 'admin' ? 'admin@nexora.com' : userRole === 'expert' ? 'expert@nexora.com' : 'client@nexora.com'}
+                  {userRole === 'admin' ? 'admin@experthub.com' : userRole === 'expert' ? 'expert@experthub.com' : 'client@experthub.com'}
                 </div>
               </div>
               <ChevronDown size={14} color="var(--text-muted)" />

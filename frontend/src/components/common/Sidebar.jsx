@@ -16,20 +16,21 @@ import {
   X
 } from 'lucide-react';
 
-export default function Sidebar({ activeTab, setActiveTab, theme, setTheme, onOpenUpgrade, currentUser, onLogout, isOpen, onClose }) {
+export default function Sidebar({ activeTab, setActiveTab, theme, setTheme, onOpenUpgrade, currentUser, onLogout, isOpen, onClose, userRole }) {
   const isLight = theme === 'light';
   const [showUserMenu, setShowUserMenu] = React.useState(false);
+  const role = userRole || currentUser?.role || 'admin';
 
-  // Navigation Items
+  // Navigation Items — role-aware labels for ExpertHub
   const navItems = [
-    { id: 'dashboard', label: isLight ? 'Overview' : 'Dashboard', icon: LayoutDashboard },
+    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'analytics', label: 'Analytics', icon: BarChart3 },
-    { id: 'orders', label: isLight ? 'Sales' : 'Orders', icon: ShoppingBag },
-    { id: 'customers', label: 'Customers', icon: Users },
-    { id: 'products', label: 'Products', icon: Package },
-    { id: 'ai-matcher', label: isLight ? 'Marketing' : 'AI Matcher', icon: Sparkles },
-    { id: 'chat', label: isLight ? 'Reports' : 'Messages', icon: MessageSquare },
-    { id: 'financials', label: isLight ? 'Alerts' : 'Financials', icon: Bell },
+    { id: 'orders', label: role === 'admin' ? 'Bookings' : 'My Bookings', icon: ShoppingBag },
+    { id: 'customers', label: role === 'client' ? 'Find Experts' : 'Clients', icon: Users },
+    { id: 'products', label: 'Services', icon: Package },
+    { id: 'ai-matcher', label: 'AI Matcher', icon: Sparkles },
+    { id: 'chat', label: 'Messages', icon: MessageSquare },
+    { id: 'financials', label: 'Payments', icon: Bell },
     { id: 'integrations', label: 'Integrations', icon: Sliders },
     { id: 'settings', label: 'Settings', icon: Settings },
   ];
@@ -65,7 +66,7 @@ export default function Sidebar({ activeTab, setActiveTab, theme, setTheme, onOp
                 </svg>
               </div>
               <div className="brand-name" style={{ color: '#ffffff', letterSpacing: '-0.2px' }}>
-                {isLight ? 'MetricFlow' : 'NEXORA'} {!isLight && <span>HUB</span>}
+                ExpertHub
               </div>
             </div>
             {/* Mobile Close Button */}
@@ -163,7 +164,7 @@ export default function Sidebar({ activeTab, setActiveTab, theme, setTheme, onOp
               zIndex: 100
             }}>
               <div style={{ padding: '6px 8px', fontSize: '11px', color: '#94a3b8', borderBottom: '1px solid rgba(255, 255, 255, 0.06)' }}>
-                Signed in as <strong>{currentUser?.email || 'admin@nexora.com'}</strong>
+                Signed in as <strong>{currentUser?.email || 'admin@experthub.com'}</strong>
               </div>
               <button
                 onClick={() => { setShowUserMenu(false); onLogout && onLogout(); }}

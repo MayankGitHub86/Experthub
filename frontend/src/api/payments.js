@@ -46,6 +46,16 @@ export const paymentsAPI = {
     });
     return response.data.data;
   },
+
+  /**
+   * List payments with filtering and pagination (admin only)
+   * @param {object} params - { page, limit, status, search, startDate, endDate, sortBy, sortOrder }
+   * @returns {Promise} { payments: [...], pagination: {...} }
+   */
+  async listPayments(params = {}) {
+    const response = await client.get('/payments', { params });
+    return response.data.data;
+  },
 };
 
 export default paymentsAPI;

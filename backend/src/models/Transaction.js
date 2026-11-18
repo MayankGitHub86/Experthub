@@ -3,9 +3,7 @@ import mongoose from 'mongoose';
 const transactionSchema = new mongoose.Schema({
   // Transaction Identifier
   transactionNumber: {
-    type: String,
-    unique: true,
-    index: true
+    type: String
   },
 
   // Parties
@@ -23,8 +21,7 @@ const transactionSchema = new mongoose.Schema({
   // Related Entities
   bookingId: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'Booking',
-    index: true
+    ref: 'Booking'
   },
 
   // Transaction Type

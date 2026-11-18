@@ -237,9 +237,7 @@ const bookingSchema = new mongoose.Schema({
 
   // Metadata
   bookingNumber: {
-    type: String,
-    unique: true,
-    index: true
+    type: String
   },
   source: {
     type: String,

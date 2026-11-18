@@ -43,9 +43,9 @@ function getStripePromise() {
 }
 
 /**
- * Payment form component that handles the actual Stripe payment
- * MUST be rendered inside Elements provider
- * Stripe hooks (useStripe, useElements) are always called unconditionally at top level
+ * Payment form component that handles the actual Stripe payment.
+ * MUST be rendered inside <Elements> provider — Stripe hooks are always
+ * called unconditionally at the top level, satisfying React's rules of hooks.
  */
 function StripePaymentForm({ bookingDetails, onSuccess, onError, onProcessing }) {
   // These hooks MUST be called unconditionally at the top level
@@ -132,73 +132,21 @@ function StripePaymentForm({ bookingDetails, onSuccess, onError, onProcessing })
 }
 
 /**
- * Wrapper component for rendering the payment form or loading/error states
- * This ensures the Elements provider is always present and hooks are always called
- */
-function PaymentContent({ clientSecret, bookingDetails, onSuccess, onError, onProcessing, isLoading, error }) {
-  // Render conditional UI based on state, but never conditionally call hooks
-  // The StripePaymentForm will always be rendered (even if loading/error)
-  // but we conditionally display it based on state
-
-  if (isLoading) {
-    return (
-      <div style={{ textAlign: 'center', padding: '40px 20px' }}>
-        <Loader2 size={32} className="animate-spin" style={{ margin: '0 auto', color: '#818cf8' }} />
-        <p style={{ marginTop: '12px', fontSize: '13px', color: 'var(--text-muted)' }}>
-          Initializing secure payment...
-        </p>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div style={{
-        padding: '12px',
-        borderRadius: '8px',
-        backgroundColor: 'rgba(239, 68, 68, 0.1)',
-        border: '1px solid rgb(239, 68, 68)',
-        color: 'rgb(239, 68, 68)',
-        fontSize: '13px',
-        marginBottom: '16px'
-      }}>
-        <strong>❌ Error:</strong> {error}
-      </div>
-    );
-  }
-
-  if (!clientSecret) {
-    return (
-      <div style={{
-        padding: '12px',
-        borderRadius: '8px',
-        backgroundColor: 'rgba(59, 130, 246, 0.1)',
-        border: '1px solid rgb(59, 130, 246)',
-        color: 'rgb(59, 130, 246)',
-        fontSize: '13px'
-      }}>
-        Preparing payment form...
-      </div>
-    );
-  }
-
-  return (
-    <StripePaymentForm
-      bookingDetails={bookingDetails}
-      onSuccess={onSuccess}
-      onError={onError}
-      onProcessing={onProcessing}
-    />
-  );
-}
-
-/**
- * Main Stripe checkout modal component
- * 
- * This component always renders the Elements provider (if clientSecret exists),
- * ensuring that nested components using Stripe hooks see consistent hook ordering.
+ * Main Stripe checkout modal component.
+ *
+ * Rules of Hooks fix applied here:
+ * - ALL useState / useEffect calls happen unconditionally at the top of the
+ *   function body, before any conditional JSX is returned.
+ * - <Elements> + <StripePaymentForm> are only mounted once BOTH clientSecret
+ *   AND stripeInstance are available. They are never conditionally
+ *   mounted/unmounted based on loading or error state — those states are
+ *   shown as separate branches BEFORE the Elements subtree is considered.
+ * - <StripePaymentForm> (which calls useStripe / useElements) is NEVER
+ *   rendered outside <Elements>. The intermediate PaymentContent wrapper that
+ *   previously caused the conditional-Elements anti-pattern has been removed.
  */
 export default function StripeCheckoutModal({ bookingDetails, onClose, onBookingSuccess }) {
+  // ── ALL HOOKS UNCONDITIONALLY AT THE TOP ─────────────────────────────────
   const [clientSecret, setClientSecret] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSuccess, setIsSuccess] = useState(false);
@@ -206,7 +154,7 @@ export default function StripeCheckoutModal({ bookingDetails, onClose, onBooking
   const [error, setError] = useState(null);
   const [successDetails, setSuccessDetails] = useState(null);
   const [stripeInstance, setStripeInstance] = useState(null);
-  const [stripeError, setStripeError] = useState(null);
+  // ─────────────────────────────────────────────────────────────────────────
 
   // Guard against null or invalid bookingDetails
   useEffect(() => {
@@ -218,8 +166,8 @@ export default function StripeCheckoutModal({ bookingDetails, onClose, onBooking
   }, [bookingDetails]);
 
   /**
-   * Initialize Stripe on component mount
-   * Only initialize if bookingDetails exists
+   * Initialize Stripe on component mount.
+   * Only proceed if bookingDetails exists.
    */
   useEffect(() => {
     if (!bookingDetails) return;
@@ -228,18 +176,17 @@ export default function StripeCheckoutModal({ bookingDetails, onClose, onBooking
       .then(stripe => {
         console.log('✅ Stripe initialized for booking:', bookingDetails.bookingId);
         setStripeInstance(stripe);
-        setStripeError(null);
       })
       .catch(err => {
         const errMsg = `Stripe initialization failed: ${err.message}`;
         console.error('❌', errMsg);
-        setStripeError(errMsg);
+        setError(errMsg);
         setIsLoading(false);
       });
   }, [bookingDetails]);
 
   /**
-   * Create PaymentIntent when component mounts and booking details are available
+   * Create PaymentIntent when stripeInstance becomes available.
    */
   useEffect(() => {
     if (!bookingDetails || !stripeInstance) {
@@ -273,73 +220,11 @@ export default function StripeCheckoutModal({ bookingDetails, onClose, onBooking
     initializePayment();
   }, [bookingDetails, stripeInstance]);
 
-  // Early return if no valid bookingDetails
+  // ── ALL HOOKS HAVE BEEN CALLED — conditional returns are safe below ───────
+
+  // Guard: no valid booking
   if (!bookingDetails || !bookingDetails.bookingId) {
     return null;
-  }
-
-  // Show error state if there's an issue
-  if (error && !clientSecret) {
-    return (
-      <div className="modal-overlay" onClick={onClose}>
-        <div
-          className="modal-box"
-          style={{ maxWidth: '520px' }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <button className="modal-close-btn" onClick={onClose}>
-            <X size={20} />
-          </button>
-          
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
-            <div style={{
-              width: '32px',
-              height: '32px',
-              borderRadius: '8px',
-              background: 'rgba(239, 68, 68, 0.2)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: '#ef4444'
-            }}>
-              <AlertTriangle size={16} />
-            </div>
-            <div>
-              <h3 style={{ fontSize: '17px', fontWeight: '700', color: '#1f2937' }}>
-                Error
-              </h3>
-              <div style={{ fontSize: '11px', color: '#6b7280' }}>
-                Payment setup failed
-              </div>
-            </div>
-          </div>
-
-          <div style={{
-            padding: '12px',
-            borderRadius: '8px',
-            backgroundColor: 'rgba(239, 68, 68, 0.1)',
-            border: '1px solid rgb(239, 68, 68)',
-            color: 'rgb(239, 68, 68)',
-            fontSize: '13px',
-            marginBottom: '16px'
-          }}>
-            {error}
-          </div>
-
-          <p style={{ fontSize: '13px', color: '#6b7280', marginBottom: '16px' }}>
-            Please close this dialog and try again. If the problem persists, please contact support.
-          </p>
-
-          <button
-            onClick={onClose}
-            className="btn-pro"
-            style={{ width: '100%', padding: '12px', fontSize: '14px' }}
-          >
-            Close
-          </button>
-        </div>
-      </div>
-    );
   }
 
   const totalAmount = bookingDetails.totalAmount; // Amount in cents
@@ -347,13 +232,13 @@ export default function StripeCheckoutModal({ bookingDetails, onClose, onBooking
   const platformFee = Math.round(totalAmount * 0.15);
   const expertPayout = totalAmount - platformFee;
 
+  // ── Event handlers ────────────────────────────────────────────────────────
+
   const handlePaymentSuccess = async (paymentIntent) => {
     try {
-      // Verify payment status from backend
       const status = await paymentsAPI.getPaymentStatus(paymentIntent.id);
       
       if (status.status === 'paid' || paymentIntent.status === 'succeeded') {
-        // Show success animation
         setIsSuccess(true);
         try {
           confetti({
@@ -362,7 +247,7 @@ export default function StripeCheckoutModal({ bookingDetails, onClose, onBooking
             origin: { y: 0.6 }
           });
         } catch {
-          // Fallback if canvas-confetti fails - silently ignore
+          // Fallback if canvas-confetti fails — silently ignore
         }
 
         setSuccessDetails({
@@ -390,6 +275,96 @@ export default function StripeCheckoutModal({ bookingDetails, onClose, onBooking
 
   const handleError = (errorMsg) => {
     setError(errorMsg);
+  };
+
+  // ── Render ────────────────────────────────────────────────────────────────
+
+  /**
+   * Determine what to show in the payment area.
+   *
+   * Key invariant: <StripePaymentForm> (which calls useStripe / useElements)
+   * is ONLY ever rendered as a child of <Elements>. We achieve this by
+   * deciding here — in plain JS, before JSX — which branch to render, then
+   * embedding it once in the JSX tree below.
+   *
+   * Branches (mutually exclusive, evaluated in priority order):
+   *   1. Loading spinner  — waiting for clientSecret or stripeInstance
+   *   2. Error banner     — something went wrong (no Elements needed)
+   *   3. Payment form     — both ready; render <Elements><StripePaymentForm>
+   */
+  const renderPaymentArea = () => {
+    if (isLoading) {
+      return (
+        <div style={{ textAlign: 'center', padding: '40px 20px' }}>
+          <Loader2 size={32} className="animate-spin" style={{ margin: '0 auto', color: '#818cf8' }} />
+          <p style={{ marginTop: '12px', fontSize: '13px', color: 'var(--text-muted)' }}>
+            Initializing secure payment...
+          </p>
+        </div>
+      );
+    }
+
+    if (error) {
+      return (
+        <div style={{
+          padding: '12px',
+          borderRadius: '8px',
+          backgroundColor: 'rgba(239, 68, 68, 0.1)',
+          border: '1px solid rgb(239, 68, 68)',
+          color: 'rgb(239, 68, 68)',
+          fontSize: '13px',
+          marginBottom: '16px'
+        }}>
+          <strong>❌ Error:</strong> {error}
+        </div>
+      );
+    }
+
+    if (!clientSecret || !stripeInstance) {
+      // Still waiting — show a subtle "preparing" message (no Elements yet)
+      return (
+        <div style={{
+          padding: '12px',
+          borderRadius: '8px',
+          backgroundColor: 'rgba(59, 130, 246, 0.1)',
+          border: '1px solid rgb(59, 130, 246)',
+          color: 'rgb(59, 130, 246)',
+          fontSize: '13px'
+        }}>
+          Preparing payment form...
+        </div>
+      );
+    }
+
+    // Both clientSecret and stripeInstance are ready.
+    // <StripePaymentForm> is ALWAYS inside <Elements> — the only place it appears.
+    return (
+      <Elements
+        stripe={stripeInstance}
+        options={{
+          clientSecret,
+          appearance: {
+            theme: 'stripe',
+            variables: {
+              colorPrimary: '#818cf8',
+              colorBackground: '#ffffff',
+              colorText: '#1f2937',
+              colorDanger: '#ef4444',
+              fontFamily: '"Inter", "system-ui", "sans-serif"',
+              fontSize: '14px',
+              borderRadius: '8px'
+            }
+          }
+        }}
+      >
+        <StripePaymentForm
+          bookingDetails={bookingDetails}
+          onSuccess={handlePaymentSuccess}
+          onError={handleError}
+          onProcessing={setIsProcessing}
+        />
+      </Elements>
+    );
   };
 
   return (
@@ -460,48 +435,8 @@ export default function StripeCheckoutModal({ bookingDetails, onClose, onBooking
               </div>
             </div>
 
-            {/* Stripe Elements Payment Form */}
-            {/* Always render Elements provider if clientSecret and stripeInstance exist */}
-            {clientSecret && stripeInstance ? (
-              <Elements
-                stripe={stripeInstance}
-                options={{
-                  clientSecret,
-                  appearance: {
-                    theme: 'stripe',
-                    variables: {
-                      colorPrimary: '#818cf8',
-                      colorBackground: '#ffffff',
-                      colorText: '#1f2937',
-                      colorDanger: '#ef4444',
-                      fontFamily: '"Inter", "system-ui", "sans-serif"',
-                      fontSize: '14px',
-                      borderRadius: '8px'
-                    }
-                  }
-                }}
-              >
-                <PaymentContent
-                  clientSecret={clientSecret}
-                  bookingDetails={bookingDetails}
-                  onSuccess={handlePaymentSuccess}
-                  onError={handleError}
-                  onProcessing={setIsProcessing}
-                  isLoading={isLoading}
-                  error={error}
-                />
-              </Elements>
-            ) : (
-              <PaymentContent
-                clientSecret={clientSecret}
-                bookingDetails={bookingDetails}
-                onSuccess={handlePaymentSuccess}
-                onError={handleError}
-                onProcessing={setIsProcessing}
-                isLoading={isLoading}
-                error={error}
-              />
-            )}
+            {/* Payment area — single call site, no duplicate Elements mounts */}
+            {renderPaymentArea()}
 
             <div style={{ marginTop: '12px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: 'var(--text-muted)' }}>
               <Shield size={14} />

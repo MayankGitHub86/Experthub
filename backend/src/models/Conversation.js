@@ -35,8 +35,7 @@ const conversationSchema = new mongoose.Schema({
   // Related Booking (if type is 'booking')
   bookingId: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'Booking',
-    index: true
+    ref: 'Booking'
   },
 
   // Conversation Metadata

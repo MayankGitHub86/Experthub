@@ -106,7 +106,15 @@ async function generateDaySlots(expert, service, date, timezone = 'UTC') {
     workingIntervals = exception.slots || [];
   } else {
     // Use weekly schedule
-    workingIntervals = expert.availability?.weeklySchedule?.[dayName] || [];
+    const daySchedule = expert.availability?.weeklySchedule?.[dayName];
+    if (daySchedule && daySchedule.length > 0) {
+      workingIntervals = daySchedule;
+    } else if (!expert.availability?.weeklySchedule || Object.values(expert.availability?.weeklySchedule || {}).every(arr => !arr || arr.length === 0)) {
+      // Sensible default: 09:00 - 17:00 on weekdays if expert hasn't configured custom hours yet
+      if (['monday', 'tuesday', 'wednesday', 'thursday', 'friday'].includes(dayName)) {
+        workingIntervals = [{ start: '09:00', end: '17:00' }];
+      }
+    }
   }
   
   if (workingIntervals.length === 0) {
