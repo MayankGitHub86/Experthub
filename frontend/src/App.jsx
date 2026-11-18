@@ -398,6 +398,18 @@ export default function App() {
           {activeTab === 'settings' && (
             <SettingsView />
           )}
+
+          {/* VIEW: INTEGRATIONS */}
+          {activeTab === 'integrations' && (
+            <div style={{
+              padding: '32px',
+              textAlign: 'center',
+              color: 'var(--text-secondary)'
+            }}>
+              <h2>Integrations</h2>
+              <p>Integration management coming soon.</p>
+            </div>
+          )}
         </main>
       </div>
 
