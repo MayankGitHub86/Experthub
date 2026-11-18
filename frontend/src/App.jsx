@@ -101,6 +101,10 @@ export default function App() {
   const [bookingTarget, setBookingTarget] = useState(null);
   const [checkoutTarget, setCheckoutTarget] = useState(null);
   const [activeChatExpert, setActiveChatExpert] = useState(mockExperts[0]);
+  const [dateRange, setDateRange] = useState({
+    startDate: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
+    endDate: new Date()
+  });
 
   const [notifications, setNotifications] = useState([
     {
