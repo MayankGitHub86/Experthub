@@ -45,6 +45,7 @@ app.use(helmet({
     },
   },
   crossOriginEmbedderPolicy: false, // Required for some resources
+  crossOriginResourcePolicy: { policy: 'cross-origin' }, // Allow cross-origin requests from frontend
 }));
 
 // CORS

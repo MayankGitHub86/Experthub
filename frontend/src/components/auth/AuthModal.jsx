@@ -264,10 +264,12 @@ export default function AuthModal({ isOpen, onClose, onAuthenticate, initialMode
           <form onSubmit={handleSubmit} className="auth-form">
             {mode === 'signup' && (
               <div className="auth-field">
-                <label>Full Name</label>
+                <label htmlFor="auth-name">Full Name</label>
                 <div className={`auth-input-wrap ${errors.name ? 'error' : ''}`}>
                   <User size={16} />
                   <input
+                    id="auth-name"
+                    name="name"
                     type="text"
                     placeholder="Enter your full name"
                     value={formData.name}
@@ -279,10 +281,12 @@ export default function AuthModal({ isOpen, onClose, onAuthenticate, initialMode
             )}
 
             <div className="auth-field">
-              <label>Email Address</label>
+              <label htmlFor="auth-email">Email Address</label>
               <div className={`auth-input-wrap ${errors.email ? 'error' : ''}`}>
                 <Mail size={16} />
                 <input
+                  id="auth-email"
+                  name="email"
                   type="email"
                   placeholder="you@company.com"
                   value={formData.email}
@@ -293,10 +297,12 @@ export default function AuthModal({ isOpen, onClose, onAuthenticate, initialMode
             </div>
 
             <div className="auth-field">
-              <label>Password</label>
+              <label htmlFor="auth-password">Password</label>
               <div className={`auth-input-wrap ${errors.password ? 'error' : ''}`}>
                 <Lock size={16} />
                 <input
+                  id="auth-password"
+                  name="password"
                   type={showPassword ? 'text' : 'password'}
                   placeholder="Enter password"
                   value={formData.password}
@@ -311,10 +317,12 @@ export default function AuthModal({ isOpen, onClose, onAuthenticate, initialMode
 
             {mode === 'signup' && (
               <div className="auth-field">
-                <label>Confirm Password</label>
+                <label htmlFor="auth-confirm-password">Confirm Password</label>
                 <div className={`auth-input-wrap ${errors.confirmPassword ? 'error' : ''}`}>
                   <Lock size={16} />
                   <input
+                    id="auth-confirm-password"
+                    name="confirmPassword"
                     type={showPassword ? 'text' : 'password'}
                     placeholder="Confirm your password"
                     value={formData.confirmPassword}
@@ -328,7 +336,7 @@ export default function AuthModal({ isOpen, onClose, onAuthenticate, initialMode
             {mode === 'login' && (
               <div className="auth-forgot-row">
                 <label className="auth-remember">
-                  <input type="checkbox" defaultChecked />
+                  <input id="auth-remember" name="rememberMe" type="checkbox" defaultChecked />
                   <span>Remember me</span>
                 </label>
                 <button type="button" className="auth-forgot-btn">Forgot password?</button>
