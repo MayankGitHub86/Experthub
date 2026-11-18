@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import ErrorBoundary from './components/common/ErrorBoundary';
 import Sidebar from './components/common/Sidebar';
 import TopHeader from './components/common/TopHeader';
 import SearchModal from './components/common/SearchModal';
@@ -215,7 +216,8 @@ export default function App() {
   }
 
   return (
-    <div className="app-container">
+    <ErrorBoundary>
+      <div className="app-container">
       {/* Sidebar */}
       <Sidebar 
         activeTab={activeTab} 
@@ -402,5 +404,6 @@ export default function App() {
         onBookingSuccess={handleBookingSuccess}
       />
     </div>
+    </ErrorBoundary>
   );
 }
