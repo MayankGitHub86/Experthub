@@ -1,30 +1,32 @@
 import React from 'react';
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
-import '@testing-library/jest-dom';
+import { render, screen, waitFor } from '@testing-library/react';
+import { beforeEach, describe, expect, vi } from 'vitest';
 import BookingModal from '../BookingModal';
 
 // Mock the bookingsAPI
-jest.mock('../../../api/bookings.js', () => ({
-  getExpertServices: jest.fn().mockResolvedValue([
+vi.mock('../../../api/bookings.js', () => ({
+  getExpertServices: vi.fn().mockResolvedValue([
     {
-      _id: 'service1',
+      _id: '507f1f77bcf86cd799439012',
       title: 'Test Service',
       description: 'Test Description',
       duration: 60,
-      pricing: { amount: 100 }
+      pricing: { amount: 100, currency: 'USD' },
+      isActive: true,
+      status: 'approved',
     }
   ]),
-  getExpertAvailability: jest.fn().mockResolvedValue([
+  getExpertAvailability: vi.fn().mockResolvedValue([
     {
       startTime: new Date().toISOString(),
       endTime: new Date(Date.now() + 60 * 60 * 1000).toISOString()
     }
   ]),
-  createHold: jest.fn().mockResolvedValue({
+  createHold: vi.fn().mockResolvedValue({
     _id: 'hold1',
     expiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString()
   }),
-  confirmBooking: jest.fn().mockResolvedValue({
+  confirmBooking: vi.fn().mockResolvedValue({
     _id: 'booking1',
     clientName: 'Test Client',
     amount: 100
@@ -32,17 +34,17 @@ jest.mock('../../../api/bookings.js', () => ({
 }));
 
 const mockExpert = {
-  _id: 'expert1',
+  _id: '507f1f77bcf86cd799439011',
   firstName: 'John',
   lastName: 'Doe'
 };
 
-const mockOnClose = jest.fn();
-const mockOnBookingSuccess = jest.fn();
+const mockOnClose = vi.fn();
+const mockOnBookingSuccess = vi.fn();
 
 describe('BookingModal Component - Hooks Order Regression', () => {
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
   });
 
   test('1. Initial render with no expert should not throw hooks error', () => {
@@ -208,7 +210,7 @@ describe('BookingModal Component - Hooks Order Regression', () => {
   });
 
   test('7. Effects execute correctly and load services', async () => {
-    const { getByText } = render(
+    render(
       <BookingModal 
         expert={mockExpert} 
         onClose={mockOnClose} 
@@ -265,7 +267,7 @@ describe('BookingModal Component - Hooks Order Regression', () => {
   });
 
   test('10. No console errors during render', () => {
-    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     render(
       <BookingModal 

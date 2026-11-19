@@ -16,10 +16,13 @@ import {
   X
 } from 'lucide-react';
 
-export default function Sidebar({ activeTab, setActiveTab, theme, setTheme, onOpenUpgrade, currentUser, onLogout, isOpen, onClose, userRole }) {
+export default function Sidebar({ activeTab, setActiveTab, theme, setTheme, currentUser, onLogout, isOpen, onClose, userRole }) {
   const isLight = theme === 'light';
   const [showUserMenu, setShowUserMenu] = React.useState(false);
   const role = userRole || currentUser?.role || 'admin';
+  const avatarUrl = currentUser?.profilePicture || currentUser?.avatar || currentUser?.user?.profilePicture;
+  const displayName = currentUser?.name || currentUser?.user?.firstName || currentUser?.firstName || 'Account';
+  const initials = displayName.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase();
 
   // Navigation Items — role-aware labels for ExpertHub
   const navItems = [
@@ -62,7 +65,7 @@ export default function Sidebar({ activeTab, setActiveTab, theme, setTheme, onOp
                 boxShadow: isLight ? '0 0 14px rgba(37, 99, 235, 0.4)' : '0 0 15px rgba(124, 58, 237, 0.5)'
               }}>
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                  <path d="M4 4v16l8-10 8 10V4" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="M5 6.5C5 5.67157 5.67157 5 6.5 5H18C18.8284 5 19.5 5.67157 19.5 6.5C19.5 7.32843 18.8284 8 18 8H8.5V10.5H16.5C17.3284 10.5 18 11.1716 18 12C18 12.8284 17.3284 13.5 16.5 13.5H8.5V16H18C18.8284 16 19.5 16.6716 19.5 17.5C19.5 18.3284 18.8284 19 18 19H6.5C5.67157 19 5 18.3284 5 17.5V6.5Z" fill="currentColor" stroke="none" />
                 </svg>
               </div>
               <div className="brand-name" style={{ color: '#ffffff', letterSpacing: '-0.2px' }}>
@@ -132,14 +135,12 @@ export default function Sidebar({ activeTab, setActiveTab, theme, setTheme, onOp
             className="sidebar-user-row"
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <img 
-                src={currentUser?.avatar || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80"} 
-                alt="User Avatar"
-                style={{ width: '34px', height: '34px', borderRadius: '50%', objectFit: 'cover' }}
-              />
+              {avatarUrl
+                ? <img src={avatarUrl} alt={displayName} style={{ width: '34px', height: '34px', borderRadius: '50%', objectFit: 'cover' }} />
+                : <span aria-label={`${displayName} account`} style={{ width: '34px', height: '34px', borderRadius: '50%', display: 'grid', placeItems: 'center', background: 'var(--surface-input)', color: '#ffffff', fontSize: '12px', fontWeight: 700 }}>{initials}</span>}
               <div>
                 <div style={{ fontSize: '13px', fontWeight: '600', color: '#ffffff', lineHeight: '1.2' }}>
-                  {currentUser?.name || currentUser?.firstName || 'Account'}
+                  {displayName}
                 </div>
                 <div style={{ fontSize: '11px', color: '#94a3b8', textTransform: 'capitalize' }}>
                   {currentUser?.role || 'Admin'}
@@ -167,7 +168,7 @@ export default function Sidebar({ activeTab, setActiveTab, theme, setTheme, onOp
                 Signed in as <strong>{currentUser?.email || '—'}</strong>
               </div>
               <button
-                onClick={() => { setShowUserMenu(false); onLogout && onLogout(); }}
+                onClick={() => { setShowUserMenu(false); onLogout?.(); }}
                 style={{
                   width: '100%',
                   marginTop: '6px',

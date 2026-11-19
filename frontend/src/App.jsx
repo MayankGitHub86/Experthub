@@ -1,32 +1,32 @@
-import React, { useState, useEffect } from 'react';
+import React, { lazy, Suspense, useState, useEffect } from 'react';
 import ErrorBoundary from './components/common/ErrorBoundary';
 import Sidebar from './components/common/Sidebar';
 import TopHeader from './components/common/TopHeader';
-import SearchModal from './components/common/SearchModal';
-import UpgradeModal from './components/common/UpgradeModal';
-import NotificationsModal from './components/common/NotificationsModal';
+const SearchModal = lazy(() => import('./components/common/SearchModal'));
+const UpgradeModal = lazy(() => import('./components/common/UpgradeModal'));
+const NotificationsModal = lazy(() => import('./components/common/NotificationsModal'));
 
 // Marketplace & Booking components
-import ExpertGrid from './components/marketplace/ExpertGrid';
-import ExpertProfileModal from './components/marketplace/ExpertProfileModal';
-import BookingModal from './components/booking/BookingModal';
-import StripeCheckoutModal from './components/booking/StripeCheckoutModal';
+const ExpertGrid = lazy(() => import('./components/marketplace/ExpertGrid'));
+const ExpertProfileModal = lazy(() => import('./components/marketplace/ExpertProfileModal'));
+const BookingModal = lazy(() => import('./components/booking/BookingModal'));
+const StripeCheckoutModal = lazy(() => import('./components/booking/StripeCheckoutModal'));
 
 // AI Matcher & Chat
-import AIMatchingAgent from './components/ai-matcher/AIMatchingAgent';
-import ConsultationChat from './components/chat/ConsultationChat';
+const AIMatchingAgent = lazy(() => import('./components/ai-matcher/AIMatchingAgent'));
+const ConsultationChat = lazy(() => import('./components/chat/ConsultationChat'));
 
 // Financials, Orders, Products, Analytics, Settings
-import PayoutsManager from './components/financials/PayoutsManager';
-import OrdersView from './components/orders/OrdersView';
-import SalesView from './components/sales/SalesView';
-import CustomersView from './components/customers/CustomersView';
-import ProductsView from './components/products/ProductsView';
-import SettingsView from './components/settings/SettingsView';
+const PayoutsManager = lazy(() => import('./components/financials/PayoutsManager'));
+const OrdersView = lazy(() => import('./components/orders/OrdersView'));
+const SalesView = lazy(() => import('./components/sales/SalesView'));
+const CustomersView = lazy(() => import('./components/customers/CustomersView'));
+const ProductsView = lazy(() => import('./components/products/ProductsView'));
+const SettingsView = lazy(() => import('./components/settings/SettingsView'));
 
 // Portals
-import ExpertPortal from './components/portals/ExpertPortal';
-import ClientPortal from './components/portals/ClientPortal';
+const ExpertPortal = lazy(() => import('./components/portals/ExpertPortal'));
+const ClientPortal = lazy(() => import('./components/portals/ClientPortal'));
 
 // Landing Page & Auth
 import LandingPage from './components/landing/LandingPage';
@@ -69,12 +69,7 @@ export default function App() {
       localStorage.removeItem('refreshToken');
       localStorage.removeItem('user');
       try {
-        let token = localStorage.getItem('accessToken');
-        if (!token) {
-          const refreshed = await authAPI.refreshToken();
-          token = refreshed.accessToken;
-          if (token) localStorage.setItem('accessToken', token);
-        }
+        const token = localStorage.getItem('accessToken');
         if (token) {
           const user = await authAPI.getCurrentUser();
           if (!cancelled && user) {
@@ -121,18 +116,13 @@ export default function App() {
     setBookingTarget({ expert, selectedPackage: pkg });
   };
 
-  const handleCompleteBooking = (bookingData) => {
-    setBookingTarget(null);
-    setCheckoutTarget(bookingData);
-  };
-
   // Alias used by BookingModal's onProceedToPayment prop
   const handleProceedToPayment = (bookingData) => {
     setBookingTarget(null);
     setCheckoutTarget(bookingData);
   };
 
-  const handleBookingSuccess = (newOrder) => {
+  const handleBookingSuccess = () => {
     setCheckoutTarget(null);
     setNotifications((prev) => [
       {
@@ -245,6 +235,7 @@ export default function App() {
         />
 
         <main className="content-area">
+          <Suspense fallback={<p role="status">Loading workspace…</p>}>
           {/* VIEW: DASHBOARD — role-aware */}
           {activeTab === 'dashboard' && (
             userRole === 'expert' ? (
@@ -358,11 +349,13 @@ export default function App() {
               <p>Integration management coming soon.</p>
             </div>
           )}
+          </Suspense>
         </main>
       </div>
 
       {/* Global Modals */}
-      <SearchModal 
+      <Suspense fallback={null}>
+      {isSearchOpen && <SearchModal
         isOpen={isSearchOpen}
         onClose={() => setIsSearchOpen(false)}
         onSelectExpert={(expert) => {
@@ -373,32 +366,32 @@ export default function App() {
           setActiveTab(tab);
           setIsSearchOpen(false);
         }}
-      />
+      />}
 
-      <UpgradeModal 
+      {isUpgradeOpen && <UpgradeModal
         isOpen={isUpgradeOpen}
         onClose={() => setIsUpgradeOpen(false)}
-      />
+      />}
 
-      <NotificationsModal 
+      {isNotificationsOpen && <NotificationsModal
         isOpen={isNotificationsOpen}
         onClose={() => setIsNotificationsOpen(false)}
         notifications={notifications}
         onClear={() => setNotifications([])}
-      />
+      />}
 
-      <ExpertProfileModal 
+      {selectedExpertForProfile && <ExpertProfileModal
         expert={selectedExpertForProfile}
         onClose={() => setSelectedExpertForProfile(null)}
         onSelectPackage={(expert, pkg) => handleStartBooking(expert, pkg)}
-      />
+      />}
 
-      <BookingModal 
+      {bookingTarget && <BookingModal
         expert={bookingTarget?.expert}
         initialPackage={bookingTarget?.selectedPackage}
         onClose={() => setBookingTarget(null)}
         onProceedToPayment={handleProceedToPayment}
-      />
+      />}
 
       {checkoutTarget && (
         <StripeCheckoutModal 
@@ -407,6 +400,7 @@ export default function App() {
           onBookingSuccess={handleBookingSuccess}
         />
       )}
+      </Suspense>
     </div>
     </ErrorBoundary>
   );

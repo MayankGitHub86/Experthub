@@ -4,7 +4,7 @@
  * Tests the complete booking → payment initialization flow
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 
 describe('Payment Flow', () => {
   let mockBookingData;
@@ -37,7 +37,7 @@ describe('Payment Flow', () => {
   it('should calculate totalAmount correctly (service price * 1.15 for 15% platform fee)', () => {
     const servicePrice = 100;
     const expectedTotal = servicePrice * 1.15;
-    expect(mockBookingData.totalAmount).toBe(expectedTotal);
+    expect(mockBookingData.totalAmount).toBeCloseTo(expectedTotal, 2);
   });
 
   it('should convert totalAmount to cents for payment API', () => {

@@ -1,25 +1,24 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   DollarSign, 
   TrendingUp, 
-  Calendar, 
   Search, 
   Download, 
   RefreshCw, 
-  Filter, 
   CheckCircle2, 
   Clock, 
   AlertCircle, 
   ArrowUpRight, 
-  ArrowDownRight,
   Eye, 
   X,
   CreditCard,
-  ShieldCheck,
   ChevronLeft,
   ChevronRight
 } from 'lucide-react';
 import paymentsAPI from '../../api/payments.js';
+
+const formatCents = (amount, currency = 'USD') =>
+  new Intl.NumberFormat(undefined, { style: 'currency', currency }).format((Number(amount) || 0) / 100);
 
 export default function SalesView() {
   const [payments, setPayments] = useState([]);
@@ -27,6 +26,8 @@ export default function SalesView() {
   const [error, setError] = useState(null);
   const [statusFilter, setStatusFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [appliedSearchQuery, setAppliedSearchQuery] = useState('');
+  const [dateRange, setDateRange] = useState('all');
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [selectedTxn, setSelectedTxn] = useState(null);
@@ -42,7 +43,7 @@ export default function SalesView() {
     return [...totals].map(([currency, cents]) => new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(cents / 100)).join(' · ');
   };
 
-  const loadSalesData = async () => {
+  const loadSalesData = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -55,8 +56,15 @@ export default function SalesView() {
       if (statusFilter !== 'all') {
         params.status = statusFilter;
       }
-      if (searchQuery.trim()) {
-        params.search = searchQuery.trim();
+      if (appliedSearchQuery.trim()) {
+        params.search = appliedSearchQuery.trim();
+      }
+      if (dateRange !== 'all') {
+        const days = Number(dateRange);
+        const start = new Date();
+        start.setDate(start.getDate() - days);
+        params.startDate = start.toISOString();
+        params.endDate = new Date().toISOString();
       }
 
       const paymentsData = await paymentsAPI.listPayments(params);
@@ -71,17 +79,17 @@ export default function SalesView() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [page, statusFilter, appliedSearchQuery, dateRange]);
 
   useEffect(() => {
     loadSalesData();
-  }, [page, statusFilter]);
+  }, [loadSalesData]);
 
   // Handle search submission
   const handleSearchSubmit = (e) => {
     e.preventDefault();
     setPage(1);
-    loadSalesData();
+    setAppliedSearchQuery(searchQuery);
   };
 
   // Derive metrics strictly from real backend records
@@ -91,7 +99,7 @@ export default function SalesView() {
     const pendingPayments = payments.filter(p => p.status === 'pending');
     const refundedPayments = payments.filter(p => p.status === 'refunded');
 
-    const grossCents = (payment) => (Number(payment.expertPayout ?? payment.amount) || 0) + (Number(payment.platformFee) || 0);
+    const grossCents = (payment) => Number(payment.amount) || 0;
 
     return {
       grossVolume: formatCentsByCurrency(completedPayments, grossCents),
@@ -108,7 +116,7 @@ export default function SalesView() {
   const handleExportCSV = () => {
     try {
       setIsExporting(true);
-      const headers = ['Date', 'PaymentIntent/Txn', 'BookingNumber', 'Client', 'ClientEmail', 'Expert', 'ExpertEmail', 'GrossAmount', 'PlatformFee', 'ExpertShare', 'Currency', 'Status'];
+      const headers = ['Date', 'PaymentIntent/Txn', 'BookingNumber', 'Client', 'ClientEmail', 'Expert', 'ExpertEmail', 'GrossAmount', 'PlatformFee', 'ProcessingFee', 'ExpertNet', 'Currency', 'Status'];
       const rows = payments.map(p => [
         p.createdAt ? new Date(p.createdAt).toISOString().split('T')[0] : '',
         `"${p.paymentIntentId || p.id || ''}"`,
@@ -117,8 +125,9 @@ export default function SalesView() {
         `"${p.clientEmail || ''}"`,
         `"${p.expertName || ''}"`,
         `"${p.expertEmail || ''}"`,
-        ((Number(p.expertPayout ?? p.amount) + Number(p.platformFee || 0)) / 100).toFixed(2),
+        (Number(p.amount || 0) / 100).toFixed(2),
         (Number(p.platformFee || 0) / 100).toFixed(2),
+        (Number(p.processingFee || 0) / 100).toFixed(2),
         (Number((p.expertPayout ?? p.amount) || 0) / 100).toFixed(2),
         p.currency || '',
         `"${p.status || ''}"`
@@ -233,7 +242,7 @@ export default function SalesView() {
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
             <span style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-              Recorded Expert Share
+              Expert Net After Fees
             </span>
             <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'rgba(16, 185, 129, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#10b981' }}>
               <ArrowUpRight size={16} />
@@ -243,7 +252,7 @@ export default function SalesView() {
             {metrics.expertPayouts}
           </div>
           <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
-            Expert share recorded on completed transactions
+            Recorded expert amount after platform and processing fees
           </div>
         </div>
 
@@ -301,6 +310,16 @@ export default function SalesView() {
             </button>
           ))}
         </div>
+
+        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-secondary)', fontSize: '12px' }}>
+          Date range
+          <select aria-label="Filter payments by date" value={dateRange} onChange={(event) => { setDateRange(event.target.value); setPage(1); }} style={{ padding: '8px 10px', borderRadius: '8px', border: '1px solid var(--border-subtle)', backgroundColor: 'var(--surface-input)', color: 'var(--text-primary)' }}>
+            <option value="all">All time</option>
+            <option value="7">Last 7 days</option>
+            <option value="30">Last 30 days</option>
+            <option value="90">Last 90 days</option>
+          </select>
+        </label>
 
         {/* Search */}
         <form onSubmit={handleSearchSubmit} style={{ display: 'flex', gap: '8px', flex: '1', maxWidth: '380px' }}>
@@ -376,18 +395,19 @@ export default function SalesView() {
                   <th style={{ padding: '12px 16px', fontWeight: '600', color: 'var(--text-muted)' }}>Expert</th>
                   <th style={{ padding: '12px 16px', fontWeight: '600', color: 'var(--text-muted)' }}>Gross</th>
                   <th style={{ padding: '12px 16px', fontWeight: '600', color: 'var(--text-muted)' }}>Platform Fee</th>
-                  <th style={{ padding: '12px 16px', fontWeight: '600', color: 'var(--text-muted)' }}>Expert Share</th>
+                  <th style={{ padding: '12px 16px', fontWeight: '600', color: 'var(--text-muted)' }}>Processing Fee</th>
+                  <th style={{ padding: '12px 16px', fontWeight: '600', color: 'var(--text-muted)' }}>Expert Net</th>
                   <th style={{ padding: '12px 16px', fontWeight: '600', color: 'var(--text-muted)' }}>Status</th>
                   <th style={{ padding: '12px 16px', fontWeight: '600', color: 'var(--text-muted)' }}>Action</th>
                 </tr>
               </thead>
               <tbody>
                 {payments.map((p) => {
-                  const gross = (Number(p.expertPayout ?? p.amount) || 0) + (Number(p.platformFee) || 0);
+                  const gross = Number(p.amount) || 0;
                   const fee = Number(p.platformFee) || 0;
+                  const processingFee = Number(p.processingFee) || 0;
                   const payout = Number(p.expertPayout ?? p.amount) || 0;
                   const isPaid = p.status === 'completed' || p.status === 'paid';
-                  const isRefunded = p.status === 'refunded' || p.refundStatus;
                   const isPending = p.status === 'pending';
 
                   return (
@@ -413,13 +433,16 @@ export default function SalesView() {
                         <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{p.expertEmail || ''}</div>
                       </td>
                       <td style={{ padding: '14px 16px', fontWeight: '700', color: 'var(--text-primary)' }}>
-                        {new Intl.NumberFormat(undefined, { style: 'currency', currency: p.currency || 'USD' }).format(gross / 100)}
+                        {formatCents(gross, p.currency)}
                       </td>
                       <td style={{ padding: '14px 16px', color: '#8b5cf6', fontWeight: '600' }}>
-                        {new Intl.NumberFormat(undefined, { style: 'currency', currency: p.currency || 'USD' }).format(fee / 100)}
+                        {formatCents(fee, p.currency)}
+                      </td>
+                      <td style={{ padding: '14px 16px', color: 'var(--text-secondary)' }}>
+                        {formatCents(processingFee, p.currency)}
                       </td>
                       <td style={{ padding: '14px 16px', color: '#10b981', fontWeight: '600' }}>
-                        {new Intl.NumberFormat(undefined, { style: 'currency', currency: p.currency || 'USD' }).format(payout / 100)}
+                        {formatCents(payout, p.currency)}
                       </td>
                       <td style={{ padding: '14px 16px' }}>
                         <span style={{
@@ -518,20 +541,26 @@ export default function SalesView() {
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--border-subtle)' }}>
                 <span style={{ color: 'var(--text-muted)' }}>Gross Amount</span>
-                <span style={{ fontWeight: '700', color: 'var(--text-primary)' }}>
-                  ${Number(selectedTxn.amount || 0).toFixed(2)} {selectedTxn.currency || 'USD'}
+                  <span style={{ fontWeight: '700', color: 'var(--text-primary)' }}>
+                  {formatCents(selectedTxn.amount, selectedTxn.currency)}
                 </span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--border-subtle)' }}>
-                <span style={{ color: 'var(--text-muted)' }}>Platform Fee (15%)</span>
+                <span style={{ color: 'var(--text-muted)' }}>Platform Fee</span>
                 <span style={{ fontWeight: '700', color: '#8b5cf6' }}>
-                  ${Number(selectedTxn.platformFee || (Number(selectedTxn.amount || 0) * 0.15)).toFixed(2)}
+                  {formatCents(selectedTxn.platformFee, selectedTxn.currency)}
                 </span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--border-subtle)' }}>
-                <span style={{ color: 'var(--text-muted)' }}>Expert Settlement (85%)</span>
+                <span style={{ color: 'var(--text-muted)' }}>Payment Processing Fee</span>
+                <span style={{ fontWeight: '700', color: 'var(--text-secondary)' }}>
+                  {formatCents(selectedTxn.processingFee, selectedTxn.currency)}
+                </span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--border-subtle)' }}>
+                <span style={{ color: 'var(--text-muted)' }}>Expert Net</span>
                 <span style={{ fontWeight: '700', color: '#10b981' }}>
-                  ${Number(selectedTxn.expertPayout || (Number(selectedTxn.amount || 0) * 0.85)).toFixed(2)}
+                  {formatCents(selectedTxn.expertPayout ?? selectedTxn.amount, selectedTxn.currency)}
                 </span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--border-subtle)' }}>

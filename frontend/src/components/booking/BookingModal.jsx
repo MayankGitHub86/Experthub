@@ -1,19 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   X, 
-  ChevronLeft, 
-  ChevronRight, 
-  Star, 
-  FileText, 
-  Tag, 
-  Clock, 
-  Info, 
-  MessageSquare,
   CheckCircle,
-  CreditCard,
-  Calendar as CalendarIcon,
-  ShieldCheck,
-  ArrowRight,
   AlertCircle,
   Loader
 } from 'lucide-react';
@@ -81,7 +69,7 @@ export default function BookingModal({ expert, initialPackage, onClose, onBookin
     };
 
     loadServices();
-  }, [expertId, initialPackage]);
+  }, [expertId, expert, initialPackage]);
 
   // Load availability when date or service changes
   useEffect(() => {
@@ -120,7 +108,7 @@ export default function BookingModal({ expert, initialPackage, onClose, onBookin
     };
 
     loadAvailability();
-  }, [selectedService, selectedDate, expertId]);
+  }, [selectedService, selectedDate, expertId, expert]);
 
   // Handle hold countdown
   useEffect(() => {

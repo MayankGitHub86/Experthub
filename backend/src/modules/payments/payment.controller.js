@@ -259,6 +259,7 @@ export const listPayments = async (req, res, next) => {
         amount: txn.amount,
         currency: txn.currency,
         platformFee: txn.fees?.platformFee || 0,
+        processingFee: txn.fees?.paymentProcessingFee || 0,
         expertPayout: txn.netAmount,
         status: txn.status,
         refundStatus: txn.refund?.refundedAmount ? (txn.refund.refundedAmount === txn.amount ? 'full' : 'partial') : null,

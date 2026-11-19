@@ -29,12 +29,13 @@ export default function TopHeader({
   const isLight = theme === 'light';
   const [showRoleMenu, setShowRoleMenu] = useState(false);
   const [showDateMenu, setShowDateMenu] = useState(false);
+  const displayName = currentUser?.firstName || currentUser?.user?.firstName || currentUser?.name || currentUser?.email?.split('@')[0] || 'there';
 
   const getTitleAndSubtitle = () => {
     if (isLight && activeTab === 'dashboard') {
       return {
         title: "Overview",
-        subtitle: "Welcome back, Michael! Here's what's happening with your business today."
+        subtitle: `Welcome back, ${displayName}. Here's what's happening with your account today.`
       };
     }
 
@@ -42,7 +43,7 @@ export default function TopHeader({
       case 'dashboard':
         return {
           title: "Dashboard",
-          subtitle: `Welcome back, Alex! Here's what's happening with your platform.`
+          subtitle: `Welcome back, ${displayName}. Here's what's happening with your account.`
         };
       case 'analytics':
         return {
@@ -62,7 +63,7 @@ export default function TopHeader({
       case 'orders':
         return {
           title: "Bookings & Orders",
-          subtitle: "Real-time WooCommerce booking pipeline and order tracking."
+          subtitle: "Review your consultation bookings and order history."
         };
       case 'ai-matcher':
         return {
@@ -72,12 +73,12 @@ export default function TopHeader({
       case 'chat':
         return {
           title: "Consultation Room",
-          subtitle: "Live WebRTC-ready chat simulator with real-time messaging."
+          subtitle: "Secure messaging for your consultations."
         };
       case 'financials':
         return {
           title: "Stripe Connect Financials",
-          subtitle: "Multi-vendor escrow balance, payouts, and platform commission splits."
+          subtitle: "Review recorded payments and expert earnings."
         };
       default:
         return {
@@ -94,6 +95,8 @@ export default function TopHeader({
     : ["May 12 - Jun 10, 2026", "Last 7 Days (Jun 3 - Jun 10)", "Last 30 Days", "Year to Date (2026)"];
 
   const activeDatePill = dateRange || 'Last 30 Days';
+  const avatarUrl = currentUser?.profilePicture || currentUser?.avatar;
+  const initials = displayName.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join('').toUpperCase();
 
   return (
     <header className="top-header" style={{
@@ -277,11 +280,9 @@ export default function TopHeader({
               className="user-profile-menu"
               onClick={() => setShowRoleMenu(!showRoleMenu)}
             >
-              <img 
-                src={currentUser?.profilePicture || currentUser?.avatar || ''}
-                alt={currentUser?.name || currentUser?.email || 'Account'}
-                className="user-avatar"
-              />
+              {avatarUrl
+                ? <img src={avatarUrl} alt={currentUser?.name || displayName} className="user-avatar" />
+                : <span className="user-avatar" aria-label={`${displayName} account`} style={{ display: 'grid', placeItems: 'center', background: 'var(--surface-input)', color: 'var(--text-primary)', fontWeight: 700 }}>{initials}</span>}
               <div className="user-details">
                 <div className="user-name">{currentUser?.name || currentUser?.firstName || 'Account'}</div>
                 <div className="user-role">
@@ -308,7 +309,7 @@ export default function TopHeader({
                   Signed in as {currentUser?.role || 'user'}
                 </div>
                 <button
-                  onClick={() => { setShowRoleMenu(false); onLogout && onLogout(); }}
+                  onClick={() => { setShowRoleMenu(false); onLogout?.(); }}
                   style={{
                     width: '100%',
                     padding: '8px 10px',

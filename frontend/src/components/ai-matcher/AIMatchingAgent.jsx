@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Sparkles, ArrowRight, Bot, Star, ShieldCheck, CheckCircle2, RefreshCw } from 'lucide-react';
+import { Sparkles, ArrowRight, Star, RefreshCw } from 'lucide-react';
 import expertsAPI from '../../api/experts.js';
 
 export default function AIMatchingAgent({ onBookExpert, onStartChat }) {

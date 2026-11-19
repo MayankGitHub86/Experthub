@@ -1,25 +1,31 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   Users, 
   Search, 
-  Filter, 
-  Calendar, 
-  Mail, 
   CheckCircle, 
   XCircle, 
-  Clock, 
   Eye, 
   X, 
   RefreshCw, 
   ChevronLeft, 
   ChevronRight, 
-  DollarSign, 
   BookOpen, 
   AlertCircle,
-  UserCheck,
-  Shield
+  UserCheck
 } from 'lucide-react';
 import usersAPI from '../../api/users.js';
+
+const formatSettledSpend = (customer) => {
+  const amounts = Array.isArray(customer.settledSpendByCurrency)
+    ? customer.settledSpendByCurrency
+    : customer.totalSpent != null && Number.isFinite(Number(customer.totalSpent))
+      ? [{ currency: 'USD', amount: Number(customer.totalSpent) }]
+      : [];
+  if (!amounts.length) return '—';
+  return amounts
+    .map(({ currency, amount }) => new Intl.NumberFormat(undefined, { style: 'currency', currency: currency || 'USD' }).format(Number(amount) || 0))
+    .join(' · ');
+};
 
 export default function CustomersView() {
   const [customers, setCustomers] = useState([]);
@@ -28,6 +34,7 @@ export default function CustomersView() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [roleFilter, setRoleFilter] = useState('client');
   const [searchQuery, setSearchQuery] = useState('');
+  const [appliedSearchQuery, setAppliedSearchQuery] = useState('');
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
@@ -36,7 +43,7 @@ export default function CustomersView() {
   const [customerBookings, setCustomerBookings] = useState([]);
   const [customerDetailsError, setCustomerDetailsError] = useState('');
 
-  const loadCustomers = async () => {
+  const loadCustomers = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -49,8 +56,8 @@ export default function CustomersView() {
       if (statusFilter !== 'all') {
         params.status = statusFilter;
       }
-      if (searchQuery.trim()) {
-        params.search = searchQuery.trim();
+      if (appliedSearchQuery.trim()) {
+        params.search = appliedSearchQuery.trim();
       }
 
       const res = await usersAPI.listUsers(params);
@@ -64,16 +71,16 @@ export default function CustomersView() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [page, roleFilter, statusFilter, appliedSearchQuery]);
 
   useEffect(() => {
     loadCustomers();
-  }, [page, statusFilter, roleFilter]);
+  }, [loadCustomers]);
 
   const handleSearchSubmit = (e) => {
     e.preventDefault();
     setPage(1);
-    loadCustomers();
+    setAppliedSearchQuery(searchQuery);
   };
 
   const handleOpenDetails = async (customer) => {
@@ -222,6 +229,16 @@ export default function CustomersView() {
           </button>
         </div>
 
+        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-secondary)', fontSize: '12px' }}>
+          Status
+          <select aria-label="Filter accounts by status" value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value); setPage(1); }} style={{ padding: '8px 10px', borderRadius: '8px', border: '1px solid var(--border-subtle)', backgroundColor: 'var(--surface-input)', color: 'var(--text-primary)' }}>
+            <option value="all">All statuses</option>
+            <option value="active">Active</option>
+            <option value="suspended">Suspended</option>
+            <option value="deleted">Deleted</option>
+          </select>
+        </label>
+
         {/* Search */}
         <form onSubmit={handleSearchSubmit} style={{ display: 'flex', gap: '8px', flex: '1', maxWidth: '360px' }}>
           <div style={{ position: 'relative', width: '100%' }}>
@@ -356,7 +373,7 @@ export default function CustomersView() {
                     <td style={{ padding: '14px 16px', color: 'var(--text-primary)' }}>{c.completedBookings || 0}</td>
                     <td style={{ padding: '14px 16px', color: 'var(--text-primary)' }}>{c.cancelledBookings || 0}</td>
                     <td style={{ padding: '14px 16px', fontWeight: '700', color: '#10b981' }}>
-                      ${(Number(c.totalSpent) || 0).toFixed(2)}
+                      {formatSettledSpend(c)}
                     </td>
                     <td style={{ padding: '14px 16px' }}>
                       <span style={{
@@ -454,7 +471,7 @@ export default function CustomersView() {
                   {selectedCustomer.name}
                 </h3>
                 <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
-                  {selectedCustomer.email} • Joined {new Date(selectedCustomer.createdAt || Date.now()).toLocaleDateString()}
+                  {selectedCustomer.email} • Joined {selectedCustomer.createdAt ? new Date(selectedCustomer.createdAt).toLocaleDateString() : 'date unavailable'}
                 </div>
               </div>
             </div>

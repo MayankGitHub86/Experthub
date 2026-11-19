@@ -46,10 +46,16 @@ export const listUsers = async (req, res, next) => {
       } }
     ]), Transaction.aggregate([
       { $match: { fromUserId: { $in: userIds }, type: 'booking_payment', status: 'completed' } },
-      { $group: { _id: '$fromUserId', amount: { $sum: '$amount' } } }
+      { $group: {
+        _id: { userId: '$fromUserId', currency: { $toUpper: { $ifNull: ['$currency', 'USD'] } } },
+        amountCents: { $sum: { $add: ['$amount', { $ifNull: ['$fees.platformFee', 0] }] } },
+      } }
     ]), Transaction.aggregate([
       { $match: { toUserId: { $in: userIds }, type: 'refund', status: 'completed' } },
-      { $group: { _id: '$toUserId', amount: { $sum: '$amount' } } }
+      { $group: {
+        _id: { userId: '$toUserId', currency: { $toUpper: { $ifNull: ['$currency', 'USD'] } } },
+        amount: { $sum: '$amount' },
+      } }
     ])]);
 
     const statsMap = new Map();
@@ -57,21 +63,26 @@ export const listUsers = async (req, res, next) => {
       totalBookings: row.totalBookings,
       completedBookings: row.completedBookings,
       cancelledBookings: row.cancelledBookings,
-      settledSpend: 0,
+      settledSpendByCurrency: new Map(),
     }));
     settledPayments.forEach((row) => {
-      const key = row._id.toString();
-      statsMap.set(key, { totalBookings: 0, completedBookings: 0, cancelledBookings: 0, ...statsMap.get(key), settledSpend: row.amount });
+      const key = row._id.userId.toString();
+      const current = statsMap.get(key) || { totalBookings: 0, completedBookings: 0, cancelledBookings: 0, settledSpendByCurrency: new Map() };
+      const currency = row._id.currency || 'USD';
+      current.settledSpendByCurrency.set(currency, row.amountCents / 100);
+      statsMap.set(key, current);
     });
     refunds.forEach((row) => {
-      const key = row._id.toString();
-      const current = statsMap.get(key) || { totalBookings: 0, completedBookings: 0, cancelledBookings: 0, settledSpend: 0 };
-      current.settledSpend = Math.max(0, current.settledSpend - row.amount);
+      const key = row._id.userId.toString();
+      const current = statsMap.get(key) || { totalBookings: 0, completedBookings: 0, cancelledBookings: 0, settledSpendByCurrency: new Map() };
+      const currency = row._id.currency || 'USD';
+      current.settledSpendByCurrency.set(currency, Math.max(0, (current.settledSpendByCurrency.get(currency) || 0) - row.amount));
       statsMap.set(key, current);
     });
 
     const enrichedUsers = users.map(u => {
-      const stats = statsMap.get(u._id.toString()) || { totalBookings: 0, completedBookings: 0, cancelledBookings: 0, settledSpend: 0 };
+      const stats = statsMap.get(u._id.toString()) || { totalBookings: 0, completedBookings: 0, cancelledBookings: 0, settledSpendByCurrency: new Map() };
+      const settledSpendByCurrency = Array.from(stats.settledSpendByCurrency, ([currency, amount]) => ({ currency, amount }));
       return {
         id: u._id.toString(),
         firstName: u.firstName,
@@ -84,7 +95,8 @@ export const listUsers = async (req, res, next) => {
         totalBookings: stats.totalBookings,
         completedBookings: stats.completedBookings,
         cancelledBookings: stats.cancelledBookings,
-        totalSpent: stats.settledSpend,
+        totalSpent: settledSpendByCurrency.length === 1 ? settledSpendByCurrency[0].amount : null,
+        settledSpendByCurrency,
         createdAt: u.createdAt
       };
     });
