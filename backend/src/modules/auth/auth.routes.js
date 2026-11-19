@@ -5,7 +5,6 @@ import { validateBody } from '../../middleware/validate.js';
 import {
   registerSchema,
   loginSchema,
-  refreshTokenSchema,
   verifyEmailSchema,
   forgotPasswordSchema,
   resetPasswordSchema,

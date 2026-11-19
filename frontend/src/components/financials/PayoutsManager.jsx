@@ -1,217 +1,89 @@
-import React, { useState } from 'react';
-import { DollarSign, ArrowUpRight, ArrowDownLeft, CheckCircle2, Shield, CreditCard, RefreshCw } from 'lucide-react';
-import { mockExperts } from '../../data/mockExperts';
+import React, { useCallback, useEffect, useState } from 'react';
+import { DollarSign, RefreshCw, AlertCircle } from 'lucide-react';
+import paymentsAPI from '../../api/payments.js';
+
+const money = (amount, currency = 'USD') => new Intl.NumberFormat(undefined, {
+  style: 'currency', currency: String(currency || 'USD').toUpperCase(),
+}).format((Number(amount) || 0) / 100);
 
 export default function PayoutsManager() {
-  const [payoutsList, setPayoutsList] = useState([
-    { id: "PO-7721", expert: "Dr. Aris Thorne", amount: "$3,450.00", date: "Jun 8, 2026", method: "Stripe Express •••• 9921", status: "Settled" },
-    { id: "PO-7719", expert: "Elena Rostova", amount: "$2,890.00", date: "Jun 7, 2026", method: "Stripe Express •••• 4120", status: "Settled" },
-    { id: "PO-7714", expert: "Marcus Sterling", amount: "$4,120.00", date: "Jun 5, 2026", method: "Stripe Express •••• 1088", status: "Settled" },
-    { id: "PO-7708", expert: "Sophia Chen", amount: "$1,850.00", date: "Jun 3, 2026", method: "Stripe Express •••• 5542", status: "Settled" },
-  ]);
+  const [payments, setPayments] = useState([]);
+  const [pagination, setPagination] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
-  const [isProcessingPayout, setIsProcessingPayout] = useState(false);
+  const loadPayments = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const result = await paymentsAPI.listPayments({ page: 1, limit: 25, sortBy: 'createdAt', sortOrder: 'desc' });
+      setPayments(Array.isArray(result?.payments) ? result.payments : []);
+      setPagination(result?.pagination || null);
+    } catch (err) {
+      setPayments([]);
+      setPagination(null);
+      setError(err.response?.data?.message || 'Payment records could not be loaded.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-  const handleTriggerPayout = () => {
-    setIsProcessingPayout(true);
-    setTimeout(() => {
-      setIsProcessingPayout(false);
-      setPayoutsList((prev) => [
-        {
-          id: `PO-${Math.floor(7800 + Math.random() * 100)}`,
-          expert: "Batch Payout (3 Experts)",
-          amount: "$5,240.00",
-          date: "Just now",
-          method: "Stripe Connect Direct Transfer",
-          status: "Settled"
-        },
-        ...prev
-      ]);
-    }, 1000);
-  };
+  useEffect(() => { loadPayments(); }, [loadPayments]);
+
+  const completed = payments.filter((payment) => payment.status === 'completed');
+  const grossCents = completed.reduce((sum, payment) => sum + (Number(payment.expertPayout) || 0) + (Number(payment.platformFee) || 0), 0);
+  const feeCents = completed.reduce((sum, payment) => sum + (Number(payment.platformFee) || 0), 0);
+  const expertCents = completed.reduce((sum, payment) => sum + (Number(payment.expertPayout) || 0), 0);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-      {/* Financial Metric Highlights */}
-      <div className="metrics-row">
-        <div className="metric-card">
-          <div className="metric-header">
-            <span className="metric-title">Gross Volume</span>
-            <div className="metric-icon-box" style={{ backgroundColor: 'rgba(139, 92, 246, 0.15)' }}>
-              <DollarSign size={20} color="#a78bfa" />
-            </div>
-          </div>
-          <div className="metric-value">$48,250.75</div>
-          <div className="metric-footer">
-            <span className="metric-trend positive">↑ 12.5%</span>
-            <span className="metric-comparison">platform gross processed</span>
-          </div>
+    <section style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+        <div>
+          <h2 style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-primary)' }}>Payment Activity</h2>
+          <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Amounts are derived from recorded booking payment transactions.</p>
         </div>
+        <button type="button" onClick={loadPayments} disabled={loading} className="filter-btn" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <RefreshCw size={14} className={loading ? 'spinner' : ''} /> Refresh
+        </button>
+      </header>
 
-        <div className="metric-card">
-          <div className="metric-header">
-            <span className="metric-title">Platform Fee (15%)</span>
-            <div className="metric-icon-box" style={{ backgroundColor: 'rgba(16, 185, 129, 0.15)' }}>
-              <ArrowDownLeft size={20} color="#34d399" />
-            </div>
-          </div>
-          <div className="metric-value">$7,237.61</div>
-          <div className="metric-footer">
-            <span className="metric-trend positive">↑ Net Margin</span>
-            <span className="metric-comparison">collected commission</span>
-          </div>
-        </div>
+      {error && <div role="alert" style={{ display: 'flex', gap: '8px', alignItems: 'center', color: '#ef4444' }}><AlertCircle size={16} />{error}</div>}
 
-        <div className="metric-card">
-          <div className="metric-header">
-            <span className="metric-title">Expert Escrow Paid</span>
-            <div className="metric-icon-box" style={{ backgroundColor: 'rgba(59, 130, 246, 0.15)' }}>
-              <ArrowUpRight size={20} color="#60a5fa" />
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px' }}>
+        {[
+          ['Recorded transactions', pagination?.total ?? (loading ? '—' : payments.length)],
+          ['Gross in latest page', money(grossCents)],
+          ['Platform fee in latest page', money(feeCents)],
+          ['Expert share in latest page', money(expertCents)],
+        ].map(([label, value]) => (
+          <div key={label} className="metric-card">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', color: 'var(--text-muted)', fontSize: '11px', textTransform: 'uppercase' }}>
+              {label}<DollarSign size={15} />
             </div>
+            <div style={{ marginTop: '8px', fontSize: '22px', fontWeight: 800, color: 'var(--text-primary)' }}>{value}</div>
           </div>
-          <div className="metric-value">$41,013.14</div>
-          <div className="metric-footer">
-            <span className="metric-trend positive">85.0% split</span>
-            <span className="metric-comparison">routed to vendor accounts</span>
-          </div>
-        </div>
-
-        <div className="metric-card">
-          <div className="metric-header">
-            <span className="metric-title">Available Payouts</span>
-            <div className="metric-icon-box" style={{ backgroundColor: 'rgba(249, 115, 22, 0.15)' }}>
-              <CreditCard size={20} color="#fb923c" />
-            </div>
-          </div>
-          <div className="metric-value">$5,240.00</div>
-          <div className="metric-footer">
-            <span className="metric-trend" style={{ color: '#fb923c' }}>Ready for transfer</span>
-            <span className="metric-comparison">Stripe Connect buffer</span>
-          </div>
-        </div>
+        ))}
       </div>
 
-      {/* Stripe Connect Escrow Header & Action */}
-      <div className="card-container">
-        <div className="card-header">
-          <div>
-            <h3 className="card-title">Stripe Connect Multi-Vendor Accounts</h3>
-            <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-              Automatic split-pay routing directly to experts' verified Stripe Express accounts.
-            </p>
-          </div>
-
-          <button
-            onClick={handleTriggerPayout}
-            disabled={isProcessingPayout}
-            className="btn-pro"
-            style={{ width: 'auto', padding: '9px 18px', fontSize: '13px' }}
-          >
-            {isProcessingPayout ? (
-              <>
-                <RefreshCw size={14} className="animate-spin" />
-                <span>Processing Transfers...</span>
-              </>
-            ) : (
-              <>
-                <DollarSign size={14} />
-                <span>Execute Batch Payout ($5,240)</span>
-              </>
-            )}
-          </button>
-        </div>
-
-        {/* Connected Vendors Table */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-          {mockExperts.slice(0, 4).map((exp, idx) => (
-            <div
-              key={exp.id}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                padding: '12px 16px',
-                borderRadius: '10px',
-                backgroundColor: 'var(--surface-input)',
-                border: '1px solid var(--border-subtle)'
-              }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <img 
-                  src={exp.avatar} 
-                  alt={exp.name} 
-                  style={{ width: '38px', height: '38px', borderRadius: '50%', objectFit: 'cover' }}
-                />
-                <div>
-                  <div style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)' }}>
-                    {exp.name}
-                  </div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                    Stripe Account: <code style={{ color: 'var(--accent-purple-light)' }}>acct_1N928{idx}Xy</code> • Payouts Active
-                  </div>
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontSize: '13px', fontWeight: '700', color: 'var(--text-primary)' }}>
-                    ${(exp.hourlyRate * 8.5).toFixed(2)}
-                  </div>
-                  <div style={{ fontSize: '10px', color: 'var(--accent-green)', fontWeight: '600' }}>
-                    Ready for Payout
-                  </div>
-                </div>
-
-                <span style={{
-                  fontSize: '11px',
-                  fontWeight: '600',
-                  padding: '3px 8px',
-                  borderRadius: '6px',
-                  backgroundColor: 'rgba(16, 185, 129, 0.15)',
-                  color: '#34d399',
-                  border: '1px solid rgba(16, 185, 129, 0.3)'
-                }}>
-                  KYC Verified
-                </span>
-              </div>
-            </div>
-          ))}
-        </div>
+      <div className="card-container" style={{ overflowX: 'auto' }}>
+        <h3 className="card-title" style={{ marginBottom: '12px' }}>Latest payment transactions</h3>
+        {loading ? <p role="status" style={{ color: 'var(--text-muted)' }}>Loading payment records…</p> : payments.length === 0 ? <p style={{ color: 'var(--text-muted)' }}>No payment transactions are recorded.</p> : (
+          <table style={{ width: '100%', minWidth: '680px', borderCollapse: 'collapse', textAlign: 'left', fontSize: '12px' }}>
+            <thead><tr>{['Date', 'Client', 'Expert', 'Booking', 'Gross', 'Status'].map((label) => <th key={label} style={{ padding: '10px 8px', color: 'var(--text-muted)', borderBottom: '1px solid var(--border-subtle)' }}>{label}</th>)}</tr></thead>
+            <tbody>{payments.map((payment) => (
+              <tr key={payment.id}>
+                <td style={{ padding: '10px 8px', borderBottom: '1px solid var(--border-subtle)' }}>{payment.createdAt ? new Date(payment.createdAt).toLocaleDateString() : '—'}</td>
+                <td style={{ padding: '10px 8px', borderBottom: '1px solid var(--border-subtle)' }}>{payment.clientName || '—'}</td>
+                <td style={{ padding: '10px 8px', borderBottom: '1px solid var(--border-subtle)' }}>{payment.expertName || '—'}</td>
+                <td style={{ padding: '10px 8px', borderBottom: '1px solid var(--border-subtle)' }}>{payment.bookingNumber || payment.bookingId || '—'}</td>
+                <td style={{ padding: '10px 8px', borderBottom: '1px solid var(--border-subtle)' }}>{money((Number(payment.expertPayout) || 0) + (Number(payment.platformFee) || 0), payment.currency)}</td>
+                <td style={{ padding: '10px 8px', borderBottom: '1px solid var(--border-subtle)' }}>{payment.status}</td>
+              </tr>
+            ))}</tbody>
+          </table>
+        )}
+        <p style={{ marginTop: '12px', color: 'var(--text-muted)', fontSize: '12px' }}>This backend exposes payment records but no manual payout execution endpoint. No transfer action is available here.</p>
       </div>
-
-      {/* Payout History */}
-      <div className="card-container">
-        <div className="card-header">
-          <h3 className="card-title">Recent Payout Settlements</h3>
-        </div>
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          {payoutsList.map((po) => (
-            <div
-              key={po.id}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                padding: '10px 14px',
-                borderBottom: '1px solid var(--border-subtle)',
-                fontSize: '13px'
-              }}
-            >
-              <div>
-                <span style={{ fontWeight: '600', color: 'var(--text-primary)' }}>{po.expert}</span>
-                <span style={{ marginLeft: '8px', color: 'var(--text-muted)', fontSize: '11px' }}>{po.id}</span>
-              </div>
-              <div style={{ color: 'var(--text-muted)', fontSize: '12px' }}>{po.method}</div>
-              <div style={{ color: 'var(--text-muted)', fontSize: '12px' }}>{po.date}</div>
-              <div style={{ fontWeight: '700', color: 'var(--text-primary)' }}>{po.amount}</div>
-              <div>
-                <span className="badge-status success">{po.status}</span>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
+    </section>
   );
 }

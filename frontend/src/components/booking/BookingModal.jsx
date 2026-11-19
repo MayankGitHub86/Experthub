@@ -45,56 +45,16 @@ export default function BookingModal({ expert, initialPackage, onClose, onBookin
         setLoading(true);
         setError(null);
 
-        let loadedServices = [];
-
-        if (expertId && String(expertId).match(/^[0-9a-fA-F]{24}$/)) {
-          try {
-            const data = await bookingsAPI.getExpertServices(expertId);
-            if (Array.isArray(data) && data.length > 0) {
-              loadedServices = data;
-            }
-          } catch (apiErr) {
-            console.warn('Could not fetch services from API, checking fallback:', apiErr.message);
-          }
+        if (!expertId || !/^[0-9a-fA-F]{24}$/.test(String(expertId))) {
+          throw new Error('This expert profile cannot be booked because it has no valid server ID.');
         }
 
-        // Fallback to embedded services or packages
-        if (loadedServices.length === 0) {
-          if (expert.services && Array.isArray(expert.services) && expert.services.length > 0) {
-            loadedServices = expert.services.map(s => ({
-              _id: s._id || s.id,
-              title: s.title || s.name,
-              description: s.description || s.desc || '',
-              duration: typeof s.duration === 'number' ? s.duration : (parseInt(s.duration) || 60),
-              pricing: {
-                amount: s.pricing?.amount || s.price || 100,
-                currency: s.pricing?.currency || 'USD'
-              }
-            }));
-          } else if (expert.packages && Array.isArray(expert.packages) && expert.packages.length > 0) {
-            loadedServices = expert.packages.map(p => ({
-              _id: p._id || p.id,
-              title: p.title || p.name,
-              description: p.description || p.desc || '',
-              duration: typeof p.duration === 'number' ? p.duration : (parseInt(p.duration) || 60),
-              pricing: {
-                amount: p.pricing?.amount || p.price || 100,
-                currency: p.pricing?.currency || 'USD'
-              }
-            }));
-          } else if (expert.hourlyRate) {
-            loadedServices = [{
-              _id: `standard-${expertId}`,
-              title: '1-on-1 Consultation Session',
-              description: `Standard 60-minute advisory consultation session with ${expert.name || expert.firstName || 'expert'}.`,
-              duration: 60,
-              pricing: {
-                amount: expert.hourlyRate,
-                currency: 'USD'
-              }
-            }];
-          }
-        }
+        const data = await bookingsAPI.getExpertServices(expertId);
+        const loadedServices = Array.isArray(data)
+          ? data.filter((service) => /^[0-9a-fA-F]{24}$/.test(String(service?._id)) &&
+              service?.isActive === true && service?.status === 'approved' &&
+              Number.isFinite(Number(service?.pricing?.amount)) && Number(service.pricing.amount) > 0)
+          : [];
 
         setServices(loadedServices);
 
@@ -109,24 +69,12 @@ export default function BookingModal({ expert, initialPackage, onClose, onBookin
           if (matched) {
             setSelectedService(matched);
             setStep(2);
-          } else if (initialPackage.title || initialPackage.name) {
-            const synthetic = {
-              _id: initialPackage.id || initialPackage._id || 'init-pkg',
-              title: initialPackage.title || initialPackage.name,
-              description: initialPackage.desc || initialPackage.description || '',
-              duration: typeof initialPackage.duration === 'number' ? initialPackage.duration : (parseInt(initialPackage.duration) || 60),
-              pricing: {
-                amount: initialPackage.price || initialPackage.pricing?.amount || 100,
-                currency: 'USD'
-              }
-            };
-            setSelectedService(synthetic);
-            setStep(2);
+          } else {
+            setError('That service is no longer available. Choose an active service from this expert.');
           }
         }
       } catch (err) {
-        console.error('Error loading services:', err);
-        setError('Failed to load services');
+        setError(err.response?.data?.message || err.message || 'Failed to load services');
       } finally {
         setLoading(false);
       }
@@ -143,44 +91,29 @@ export default function BookingModal({ expert, initialPackage, onClose, onBookin
       try {
         setLoading(true);
         setError(null);
-        const startDate = selectedDate.toISOString();
-        const endDate = new Date(selectedDate.getTime() + 1 * 24 * 60 * 60 * 1000).toISOString();
+        const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+        const dayStart = new Date(selectedDate);
+        dayStart.setHours(0, 0, 0, 0);
+        const dayEnd = new Date(dayStart);
+        dayEnd.setDate(dayEnd.getDate() + 1);
+        const startDate = dayStart.toISOString();
+        const endDate = dayEnd.toISOString();
 
-        let slots = [];
-        if (expertId && String(expertId).match(/^[0-9a-fA-F]{24}$/) && 
-            selectedService._id && String(selectedService._id).match(/^[0-9a-fA-F]{24}$/)) {
-          try {
-            const data = await bookingsAPI.getExpertAvailability(expertId, selectedService._id, startDate, endDate);
-            if (Array.isArray(data) && data.length > 0) {
-              slots = data;
-            }
-          } catch (slotErr) {
-            console.warn('API availability lookup failed, using fallback slots:', slotErr.message);
-          }
+        if (!/^[0-9a-fA-F]{24}$/.test(String(expertId)) ||
+            !/^[0-9a-fA-F]{24}$/.test(String(selectedService._id))) {
+          throw new Error('A valid active service and expert are required to check availability.');
         }
-
-        // If no slots returned from API, generate daytime slots for this date
-        if (slots.length === 0) {
-          const now = new Date();
-          const baseDate = new Date(selectedDate);
-          for (let h = 9; h <= 17; h += 2) {
-            const slotStart = new Date(baseDate);
-            slotStart.setHours(h, 0, 0, 0);
-            const slotEnd = new Date(slotStart.getTime() + (selectedService.duration || 60) * 60000);
-            if (slotStart > now) {
-              slots.push({
-                startTime: slotStart.toISOString(),
-                endTime: slotEnd.toISOString()
-              });
-            }
-          }
-        }
+        const data = await bookingsAPI.getExpertAvailability(expertId, selectedService._id, startDate, endDate, timezone);
+        const slots = Array.isArray(data)
+          ? data.filter((slot) => slot?.startTime && Number.isFinite(new Date(slot.startTime).getTime()))
+          : [];
 
         setAvailableSlots(slots);
         setSelectedSlot(null);
       } catch (err) {
-        console.error('Error loading availability:', err);
-        setError('Failed to load availability');
+        setAvailableSlots([]);
+        setSelectedSlot(null);
+        setError(err.response?.data?.message || err.message || 'Failed to load availability');
       } finally {
         setLoading(false);
       }
@@ -226,13 +159,12 @@ export default function BookingModal({ expert, initialPackage, onClose, onBookin
         expertId,
         selectedService._id,
         selectedSlot.startTime,
-        'UTC'
+        Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
       );
       
       setCreatedHold(hold);
       setStep(3); // Move to confirmation
     } catch (err) {
-      console.error('Error creating hold:', err);
       setError(err.response?.data?.message || 'Failed to create booking hold');
     } finally {
       setLoading(false);
@@ -260,7 +192,6 @@ export default function BookingModal({ expert, initialPackage, onClose, onBookin
         onBookingSuccess(booking);
       }
     } catch (err) {
-      console.error('Error confirming booking:', err);
       setError(err.response?.data?.message || 'Failed to confirm booking');
     } finally {
       setLoading(false);
@@ -268,23 +199,18 @@ export default function BookingModal({ expert, initialPackage, onClose, onBookin
   };
 
   const handleProceedPayment = () => {
-    console.log('🔵 handleProceedPayment called');
-    console.log('  onProceedToPayment callback exists:', !!onProceedToPayment);
-    console.log('  confirmedBooking:', confirmedBooking);
-    
     if (onProceedToPayment && confirmedBooking) {
       const paymentData = {
         bookingId: confirmedBooking._id,
-        totalAmount: Math.round((confirmedBooking.totalAmount || (selectedService?.pricing?.amount || 100)) * 100),
-        currency: selectedService?.pricing?.currency || 'USD',
+        totalAmount: Math.round(Number(confirmedBooking.totalAmount) * 100),
+        currency: confirmedBooking.pricing?.currency || selectedService?.pricing?.currency || 'USD',
+        serviceTitle: selectedService.title,
         expertName: expert.name || `${expert.firstName || ''} ${expert.lastName || ''}`.trim() || 'Expert',
-        scheduledAt: selectedSlot?.startTime ? new Date(selectedSlot.startTime).toLocaleString() : new Date().toLocaleString(),
-        clientEmail: ''
+        scheduledAt: confirmedBooking.scheduledAt
+          ? new Date(confirmedBooking.scheduledAt).toLocaleString()
+          : selectedSlot?.startTime ? new Date(selectedSlot.startTime).toLocaleString() : 'Schedule unavailable',
       };
-      console.log('  📤 Calling onProceedToPayment with:', paymentData);
       onProceedToPayment(paymentData);
-    } else {
-      console.warn('  ❌ Cannot proceed: missing callback or booking');
     }
   };
 
@@ -552,7 +478,7 @@ export default function BookingModal({ expert, initialPackage, onClose, onBookin
               <div style={{ textAlign: 'center', padding: '24px 0' }}>
                 <CheckCircle size={48} color="#10b981" style={{ marginBottom: '16px' }} />
                 <h2 style={{ fontSize: '20px', fontWeight: '700', marginBottom: '8px', color: '#10b981' }}>
-                  Booking Confirmed!
+                  Booking Reserved
                 </h2>
                 <p style={{ color: 'var(--text-secondary)', marginBottom: '16px' }}>
                   Your consultation booking is confirmed.<br/>

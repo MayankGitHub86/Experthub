@@ -1,4 +1,4 @@
-import { User, Booking } from '../../models/index.js';
+import { User, Booking, Transaction } from '../../models/index.js';
 
 /**
  * User / Customer Management Controller (Admin)
@@ -36,18 +36,42 @@ export const listUsers = async (req, res, next) => {
 
     // Enrich users with booking statistics
     const userIds = users.map(u => u._id);
-    const bookingCounts = await Booking.aggregate([
+    const [bookingStats, settledPayments, refunds] = await Promise.all([Booking.aggregate([
       { $match: { clientId: { $in: userIds } } },
-      { $group: { _id: '$clientId', count: { $sum: 1 }, totalSpent: { $sum: '$totalAmount' } } }
-    ]);
+      { $group: {
+        _id: '$clientId',
+        totalBookings: { $sum: 1 },
+        completedBookings: { $sum: { $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] } },
+        cancelledBookings: { $sum: { $cond: [{ $eq: ['$status', 'cancelled'] }, 1, 0] } },
+      } }
+    ]), Transaction.aggregate([
+      { $match: { fromUserId: { $in: userIds }, type: 'booking_payment', status: 'completed' } },
+      { $group: { _id: '$fromUserId', amount: { $sum: '$amount' } } }
+    ]), Transaction.aggregate([
+      { $match: { toUserId: { $in: userIds }, type: 'refund', status: 'completed' } },
+      { $group: { _id: '$toUserId', amount: { $sum: '$amount' } } }
+    ])]);
 
-    const countMap = new Map();
-    bookingCounts.forEach(b => {
-      countMap.set(b._id.toString(), { count: b.count, totalSpent: b.totalSpent || 0 });
+    const statsMap = new Map();
+    bookingStats.forEach((row) => statsMap.set(row._id.toString(), {
+      totalBookings: row.totalBookings,
+      completedBookings: row.completedBookings,
+      cancelledBookings: row.cancelledBookings,
+      settledSpend: 0,
+    }));
+    settledPayments.forEach((row) => {
+      const key = row._id.toString();
+      statsMap.set(key, { totalBookings: 0, completedBookings: 0, cancelledBookings: 0, ...statsMap.get(key), settledSpend: row.amount });
+    });
+    refunds.forEach((row) => {
+      const key = row._id.toString();
+      const current = statsMap.get(key) || { totalBookings: 0, completedBookings: 0, cancelledBookings: 0, settledSpend: 0 };
+      current.settledSpend = Math.max(0, current.settledSpend - row.amount);
+      statsMap.set(key, current);
     });
 
     const enrichedUsers = users.map(u => {
-      const stats = countMap.get(u._id.toString()) || { count: 0, totalSpent: 0 };
+      const stats = statsMap.get(u._id.toString()) || { totalBookings: 0, completedBookings: 0, cancelledBookings: 0, settledSpend: 0 };
       return {
         id: u._id.toString(),
         firstName: u.firstName,
@@ -57,8 +81,10 @@ export const listUsers = async (req, res, next) => {
         role: u.role,
         status: u.status || 'active',
         profilePicture: u.profilePicture,
-        totalBookings: stats.count,
-        totalSpent: stats.totalSpent,
+        totalBookings: stats.totalBookings,
+        completedBookings: stats.completedBookings,
+        cancelledBookings: stats.cancelledBookings,
+        totalSpent: stats.settledSpend,
         createdAt: u.createdAt
       };
     });
@@ -89,8 +115,9 @@ export const getUserDetails = async (req, res, next) => {
     }
 
     const bookings = await Booking.find({ clientId: id })
-      .populate('expertId', 'title headline')
-      .populate('serviceId', 'title pricing')
+      .select('_id bookingNumber scheduledAt status totalAmount pricing.currency payment.paidAt serviceId expertId')
+      .populate({ path: 'expertId', select: 'headline userId', populate: { path: 'userId', select: 'firstName lastName' } })
+      .populate('serviceId', 'title')
       .sort({ scheduledAt: -1 })
       .limit(20)
       .lean();

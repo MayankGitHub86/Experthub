@@ -6,11 +6,8 @@ import {
   Mail, 
   Calendar, 
   ChevronDown, 
-  Download,
   HelpCircle,
   Check, 
-  Shield, 
-  UserCheck, 
   ExternalLink 
 } from 'lucide-react';
 
@@ -19,13 +16,11 @@ export default function TopHeader({
   theme,
   onOpenSearch, 
   userRole, 
-  setUserRole, 
   dateRange, 
   setDateRange,
   notifications,
   onOpenNotifications,
   onOpenChat,
-  onExport,
   currentUser,
   onLogout,
   onViewLanding,
@@ -200,26 +195,6 @@ export default function TopHeader({
         </div>
 
         {/* Export Action Button */}
-        {isLight && (
-          <button 
-            onClick={onExport}
-            style={{
-              backgroundColor: '#0f172a',
-              color: '#ffffff',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              padding: '8px 16px',
-              borderRadius: '8px',
-              fontSize: '13px',
-              fontWeight: '600',
-              boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
-            }}
-          >
-            <Download size={14} />
-            <span>Export</span>
-          </button>
-        )}
 
         {/* Notification Bell */}
         <button 
@@ -303,14 +278,14 @@ export default function TopHeader({
               onClick={() => setShowRoleMenu(!showRoleMenu)}
             >
               <img 
-                src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80" 
-                alt="Alex Morgan" 
+                src={currentUser?.profilePicture || currentUser?.avatar || ''}
+                alt={currentUser?.name || currentUser?.email || 'Account'}
                 className="user-avatar"
               />
               <div className="user-details">
-                <div className="user-name">Alex Morgan</div>
+                <div className="user-name">{currentUser?.name || currentUser?.firstName || 'Account'}</div>
                 <div className="user-role">
-                  {userRole === 'admin' ? 'admin@experthub.com' : userRole === 'expert' ? 'expert@experthub.com' : 'client@experthub.com'}
+                  {currentUser?.email || userRole}
                 </div>
               </div>
               <ChevronDown size={14} color="var(--text-muted)" />
@@ -330,80 +305,8 @@ export default function TopHeader({
                 boxShadow: 'var(--shadow-card)'
               }}>
                 <div style={{ padding: '6px 10px', fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                  Active Persona
+                  Signed in as {currentUser?.role || 'user'}
                 </div>
-                <button
-                  onClick={() => { setUserRole('admin'); setShowRoleMenu(false); }}
-                  style={{
-                    width: '100%',
-                    padding: '8px 10px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    borderRadius: '8px',
-                    fontSize: '13px',
-                    color: userRole === 'admin' ? '#c084fc' : 'var(--text-primary)',
-                    backgroundColor: userRole === 'admin' ? 'rgba(139, 92, 246, 0.15)' : 'transparent'
-                  }}
-                >
-                  <Shield size={16} />
-                  <span>Admin View</span>
-                </button>
-                <button
-                  onClick={() => { setUserRole('expert'); setShowRoleMenu(false); }}
-                  style={{
-                    width: '100%',
-                    padding: '8px 10px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    borderRadius: '8px',
-                    fontSize: '13px',
-                    color: userRole === 'expert' ? '#60a5fa' : 'var(--text-primary)',
-                    backgroundColor: userRole === 'expert' ? 'rgba(59, 130, 246, 0.15)' : 'transparent'
-                  }}
-                >
-                  <UserCheck size={16} />
-                  <span>Expert View</span>
-                </button>
-                <button
-                  onClick={() => { setUserRole('client'); setShowRoleMenu(false); }}
-                  style={{
-                    width: '100%',
-                    padding: '8px 10px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    borderRadius: '8px',
-                    fontSize: '13px',
-                    color: userRole === 'client' ? '#34d399' : 'var(--text-primary)',
-                    backgroundColor: userRole === 'client' ? 'rgba(16, 185, 129, 0.15)' : 'transparent'
-                  }}
-                >
-                  <ExternalLink size={16} />
-                  <span>Client View</span>
-                </button>
-
-                <div style={{ height: '1px', backgroundColor: 'var(--border-subtle)', margin: '6px 0' }} />
-
-                <button
-                  onClick={() => { setShowRoleMenu(false); onViewLanding && onViewLanding(); }}
-                  style={{
-                    width: '100%',
-                    padding: '8px 10px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    borderRadius: '8px',
-                    fontSize: '13px',
-                    color: '#93c5fd',
-                    backgroundColor: 'transparent'
-                  }}
-                >
-                  <ExternalLink size={16} />
-                  <span>Public Landing Page</span>
-                </button>
-
                 <button
                   onClick={() => { setShowRoleMenu(false); onLogout && onLogout(); }}
                   style={{

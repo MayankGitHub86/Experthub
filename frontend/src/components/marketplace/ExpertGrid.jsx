@@ -17,7 +17,6 @@ import {
   Loader
 } from 'lucide-react';
 import ExpertHubLogo from '../common/ExpertHubLogo';
-import { mockCategories } from '../../data/mockExperts';
 import expertsAPI from '../../api/experts.js';
 
 export default function ExpertGrid({ 
@@ -26,19 +25,39 @@ export default function ExpertGrid({
   onOpenAIMatcher,
   onNavigateHome,
   onLogin,
-  onSignUp
+  onSignUp,
+  initialSearchQuery = '',
+  onInitialSearchApplied
 }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [selectedSpecialty, setSelectedSpecialty] = useState('All Specialties');
   const [rateRange, setRateRange] = useState(500);
-  const [minRating, setMinRating] = useState('4.0');
+  const [minRating, setMinRating] = useState('0.0');
   const [sortBy, setSortBy] = useState('Relevance');
   const [currentPage, setCurrentPage] = useState(1);
   const [experts, setExperts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  useEffect(() => {
+    if (initialSearchQuery) {
+      setSearchQuery(initialSearchQuery);
+      setCurrentPage(1);
+      onInitialSearchApplied?.();
+    }
+  }, [initialSearchQuery, onInitialSearchApplied]);
   const itemsPerPage = 12;
+  const categories = useMemo(() => {
+    const counts = experts.reduce((map, expert) => {
+      if (expert.category) map.set(expert.category, (map.get(expert.category) || 0) + 1);
+      return map;
+    }, new Map());
+    return [
+      { id: 'all', name: 'All Categories', count: experts.length },
+      ...Array.from(counts, ([name, count]) => ({ id: name, name, count })),
+    ];
+  }, [experts]);
+  const specialties = useMemo(() => [...new Set(experts.flatMap((expert) => [...(expert.specialties || []), ...(expert.skills || [])]))].sort(), [experts]);
 
   // Load experts from API on component mount
   useEffect(() => {
@@ -67,34 +86,43 @@ export default function ExpertGrid({
       // Search text
       if (searchQuery) {
         const q = searchQuery.toLowerCase();
-        const matchesName = expert.firstName && expert.firstName.toLowerCase().includes(q);
-        const matchesRole = expert.role && expert.role.toLowerCase().includes(q);
+        const matchesName = `${expert.firstName || ''} ${expert.lastName || ''}`.toLowerCase().includes(q);
+        const matchesRole = expert.headline && expert.headline.toLowerCase().includes(q);
         const matchesBio = expert.bio && expert.bio.toLowerCase().includes(q);
-        if (!matchesName && !matchesRole && !matchesBio) return false;
+        const matchesSkills = [...(expert.skills || []), ...(expert.specialties || [])].some((item) => item.toLowerCase().includes(q));
+        if (!matchesName && !matchesRole && !matchesBio && !matchesSkills) return false;
       }
 
-      // Hourly rate filter - check if expert has a rate
-      if (expert.hourlyRate && expert.hourlyRate > rateRange) return false;
+      if (selectedCategory !== 'all' && expert.category !== selectedCategory) return false;
+      if (selectedSpecialty !== 'All Specialties' && ![...(expert.specialties || []), ...(expert.skills || [])].includes(selectedSpecialty)) return false;
+      if (expert.hourlyRate > rateRange) return false;
 
-      // Rating filter
-      if (expert.rating && expert.rating < parseFloat(minRating)) return false;
+      const rating = Number(expert.stats?.rating) || 0;
+      if (rating < parseFloat(minRating)) return false;
 
       return true;
     });
-  }, [searchQuery, experts, rateRange, minRating]);
+  }, [searchQuery, experts, rateRange, minRating, selectedCategory, selectedSpecialty]);
+
+  const sortedExperts = useMemo(() => [...filteredExperts].sort((a, b) => {
+    if (sortBy === 'Highest Rated') return (Number(b.stats?.rating) || 0) - (Number(a.stats?.rating) || 0);
+    if (sortBy === 'Price: Low to High') return a.hourlyRate - b.hourlyRate;
+    if (sortBy === 'Price: High to Low') return b.hourlyRate - a.hourlyRate;
+    return 0;
+  }), [filteredExperts, sortBy]);
 
   // Pagination
-  const totalPages = Math.ceil(filteredExperts.length / itemsPerPage);
+  const totalPages = Math.ceil(sortedExperts.length / itemsPerPage);
   const startIndex = (currentPage - 1) * itemsPerPage;
   const endIndex = startIndex + itemsPerPage;
-  const paginatedExperts = filteredExperts.slice(startIndex, endIndex);
+  const paginatedExperts = sortedExperts.slice(startIndex, endIndex);
 
   const handleClearFilters = () => {
     setSearchQuery('');
     setSelectedCategory('all');
     setSelectedSpecialty('All Specialties');
     setRateRange(500);
-    setMinRating('4.0');
+    setMinRating('0.0');
     setSortBy('Relevance');
   };
 
@@ -141,8 +169,9 @@ export default function ExpertGrid({
             <input 
               type="text" 
               placeholder="Search experts by name, keyword..."
+              aria-label="Search experts by name, keyword, or specialty"
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
               className="filter-search-input"
             />
           </div>
@@ -151,16 +180,11 @@ export default function ExpertGrid({
           <div className="filter-select-wrap">
             <select 
               value={selectedSpecialty}
-              onChange={(e) => setSelectedSpecialty(e.target.value)}
+              onChange={(e) => { setSelectedSpecialty(e.target.value); setCurrentPage(1); }}
               className="filter-dropdown-select"
             >
               <option value="All Specialties">All Specialties</option>
-              <option value="Business Strategy">Business Strategy</option>
-              <option value="Product Strategy">Product Strategy</option>
-              <option value="UX Design">UX Design</option>
-              <option value="AI & ML">AI & ML</option>
-              <option value="Finance">Finance</option>
-              <option value="Leadership">Leadership</option>
+              {specialties.map((specialty) => <option key={specialty} value={specialty}>{specialty}</option>)}
             </select>
           </div>
 
@@ -175,7 +199,7 @@ export default function ExpertGrid({
               max="500" 
               step="25"
               value={rateRange}
-              onChange={(e) => setRateRange(Number(e.target.value))}
+              onChange={(e) => { setRateRange(Number(e.target.value)); setCurrentPage(1); }}
               className="filter-range-input"
             />
             <div className="slider-ticks-row">
@@ -189,9 +213,10 @@ export default function ExpertGrid({
             <span className="rating-label">Minimum Rating</span>
             <select 
               value={minRating}
-              onChange={(e) => setMinRating(e.target.value)}
+              onChange={(e) => { setMinRating(e.target.value); setCurrentPage(1); }}
               className="filter-rating-select"
             >
+              <option value="0.0">Any rating</option>
               <option value="4.0">⭐ 4.0+ Stars</option>
               <option value="4.5">⭐ 4.5+ Stars</option>
               <option value="4.8">⭐ 4.8+ Stars</option>
@@ -215,11 +240,11 @@ export default function ExpertGrid({
             <div className="sidebar-categories-card">
               <h3 className="sidebar-group-title">Categories</h3>
               <ul className="sidebar-category-list">
-                {mockCategories.map((cat) => (
+                {categories.map((cat) => (
                   <li 
                     key={cat.id} 
                     className={`sidebar-category-item ${selectedCategory === cat.id ? 'active' : ''}`}
-                    onClick={() => setSelectedCategory(cat.id)}
+                    onClick={() => { setSelectedCategory(cat.id); setCurrentPage(1); }}
                   >
                     <span className="category-name">{cat.name}</span>
                     <span className="category-count">{cat.count.toLocaleString()}</span>
@@ -333,31 +358,25 @@ export default function ExpertGrid({
                       onClick={() => onViewProfile && onViewProfile(expert)}
                     >
                       <div className="expert-card-top-row">
-                        <img 
-                          src={expert.profilePicture || 'https://via.placeholder.com/48?text=Expert'} 
-                          alt={expert.firstName} 
-                          className="expert-card-avatar" 
-                        />
+                        {expert.profilePicture ? <img src={expert.profilePicture} alt={`${expert.firstName || ''} ${expert.lastName || ''}`.trim()} className="expert-card-avatar" /> : <div className="expert-card-avatar" aria-hidden="true">{`${expert.firstName?.[0] || ''}${expert.lastName?.[0] || ''}`}</div>}
                     
                     <div className="expert-card-info-col">
                       <div className="expert-name-badge-row">
                         <h4 className="expert-card-name">{expert.firstName} {expert.lastName}</h4>
-                        <span className="verified-green-pill">
+                        {expert.verifiedBadge && <span className="verified-green-pill">
                           <CheckCircle size={12} fill="#10B981" color="#FFFFFF" />
                           <span>Verified</span>
-                        </span>
+                        </span>}
                       </div>
 
                       <div className="expert-skills-tags-row">
-                        {expert.bio && (
-                          <span className="expert-skill-chip">{expert.bio.substring(0, 25)}...</span>
-                        )}
+                        {[...(expert.skills || []), ...(expert.specialties || [])].slice(0, 2).map((skill) => <span className="expert-skill-chip" key={skill}>{skill}</span>)}
                       </div>
 
                       <div className="expert-rating-inline">
                         <Star size={13} fill="#F59E0B" color="#F59E0B" />
-                        <span className="rating-bold">{expert.rating || '4.8'}</span>
-                        <span className="rating-count">(12 reviews)</span>
+                        <span className="rating-bold">{Number(expert.stats?.rating) ? Number(expert.stats.rating).toFixed(1) : 'New'}</span>
+                        <span className="rating-count">({expert.stats?.reviewCount || 0} reviews)</span>
                       </div>
                     </div>
                   </div>
@@ -365,14 +384,14 @@ export default function ExpertGrid({
                   {/* Hourly Rate & Avg Response */}
                   <div className="expert-card-meta-row">
                     <div className="meta-col">
-                      <span className="meta-value blue">${expert.hourlyRate || 150} <small>/hr</small></span>
+                      <span className="meta-value blue">${expert.hourlyRate} <small>/hr</small></span>
                       <span className="meta-sub">Hourly Rate</span>
                     </div>
                     <div className="meta-divider" />
                     <div className="meta-col">
                       <span className="meta-value">
                         <Clock size={12} className="meta-clock-icon" />
-                        {expert.responseTime || 'Within 1 hour'}
+                        {expert.stats?.responseTime || 'Not listed'}
                       </span>
                       <span className="meta-sub">Avg. Response</span>
                     </div>

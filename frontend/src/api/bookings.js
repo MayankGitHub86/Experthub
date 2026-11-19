@@ -151,7 +151,7 @@ export const bookingsAPI = {
    * @param {string} endDate - End date (YYYY-MM-DD format or ISO 8601)
    * @returns {array} Array of availability slot objects
    */
-  getExpertAvailability: async (expertId, serviceId, startDate = null, endDate = null) => {
+  getExpertAvailability: async (expertId, serviceId, startDate = null, endDate = null, timezone = 'UTC') => {
     // If no dates provided, use today and 14 days from now
     const start = startDate ? new Date(startDate) : new Date();
     const end = endDate ? new Date(endDate) : new Date(new Date().getTime() + 14 * 24 * 60 * 60 * 1000);
@@ -160,7 +160,7 @@ export const bookingsAPI = {
       serviceId,
       startDate: start.toISOString(),
       endDate: end.toISOString(),
-      timezone: 'UTC'
+      timezone
     });
     
     const response = await client.get(`/experts/${expertId}/availability/slots?${query.toString()}`);

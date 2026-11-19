@@ -8,6 +8,7 @@ import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import { apiLimiter, authLimiter } from './middleware/rateLimiter.js';
 import { verifyStripeSignature } from './middleware/stripeWebhook.js';
 import { handleStripeEvent } from './modules/payments/payment.webhook.controller.js';
+import { isConnected } from './config/database.js';
 
 // Import routes
 import authRoutes from './modules/auth/auth.routes.js';
@@ -98,6 +99,15 @@ app.get('/health', (req, res) => {
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
     environment: config.env,
+    database: isConnected() ? 'connected' : 'disconnected',
+  });
+});
+
+app.get('/ready', (req, res) => {
+  const ready = isConnected();
+  res.status(ready ? 200 : 503).json({
+    status: ready ? 'ready' : 'not_ready',
+    database: ready ? 'connected' : 'disconnected',
   });
 });
 

@@ -9,6 +9,7 @@ import {
 import { X, Lock, CheckCircle2, Shield, ArrowRight, Loader2, AlertTriangle } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import paymentsAPI from '../../api/payments.js';
+import bookingsAPI from '../../api/bookings.js';
 
 // Initialize Stripe (use environment variable for publishable key)
 const publishableKey = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY;
@@ -81,7 +82,7 @@ function StripePaymentForm({ bookingDetails, onSuccess, onError, onProcessing })
         onProcessing(false);
       } else if (paymentIntent && paymentIntent.status === 'succeeded') {
         // Payment succeeded
-        onSuccess(paymentIntent);
+        await onSuccess(paymentIntent);
         setIsProcessing(false);
         onProcessing(false);
       }
@@ -153,6 +154,7 @@ export default function StripeCheckoutModal({ bookingDetails, onClose, onBooking
   const [_isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState(null);
   const [successDetails, setSuccessDetails] = useState(null);
+  const [confirmationPending, setConfirmationPending] = useState(false);
   const [stripeInstance, setStripeInstance] = useState(null);
   // ─────────────────────────────────────────────────────────────────────────
 
@@ -174,7 +176,6 @@ export default function StripeCheckoutModal({ bookingDetails, onClose, onBooking
     
     getStripePromise()
       .then(stripe => {
-        console.log('✅ Stripe initialized for booking:', bookingDetails.bookingId);
         setStripeInstance(stripe);
       })
       .catch(err => {
@@ -193,8 +194,6 @@ export default function StripeCheckoutModal({ bookingDetails, onClose, onBooking
       return;
     }
 
-    console.log('💳 Creating PaymentIntent for booking:', bookingDetails.bookingId);
-
     const initializePayment = async () => {
       try {
         setIsLoading(true);
@@ -205,12 +204,13 @@ export default function StripeCheckoutModal({ bookingDetails, onClose, onBooking
           bookingDetails.currency || 'USD'
         );
 
-        console.log('✅ PaymentIntent created:', response.id);
-        setClientSecret(response.client_secret);
+        if (!response?.clientSecret) {
+          throw new Error('The payment service did not return a client secret.');
+        }
+        setClientSecret(response.clientSecret);
         setError(null);
       } catch (err) {
         const errMsg = err.response?.data?.message || 'Failed to initialize payment. Please try again.';
-        console.error('❌ Payment initialization error:', err.response?.data || err.message);
         setError(errMsg);
       } finally {
         setIsLoading(false);
@@ -229,41 +229,33 @@ export default function StripeCheckoutModal({ bookingDetails, onClose, onBooking
 
   const totalAmount = bookingDetails.totalAmount; // Amount in cents
   const displayAmount = (totalAmount / 100).toFixed(2);
-  const platformFee = Math.round(totalAmount * 0.15);
-  const expertPayout = totalAmount - platformFee;
 
   // ── Event handlers ────────────────────────────────────────────────────────
 
   const handlePaymentSuccess = async (paymentIntent) => {
     try {
-      const status = await paymentsAPI.getPaymentStatus(paymentIntent.id);
-      
-      if (status.status === 'paid' || paymentIntent.status === 'succeeded') {
-        setIsSuccess(true);
-        try {
-          confetti({
-            particleCount: 80,
-            spread: 70,
-            origin: { y: 0.6 }
+      setConfirmationPending(true);
+      for (let attempt = 0; attempt < 12; attempt += 1) {
+        const booking = await bookingsAPI.getBookingById(bookingDetails.bookingId);
+        if (booking?.payment?.paidAt || booking?.status === 'paid') {
+          setIsSuccess(true);
+          try {
+            confetti({ particleCount: 80, spread: 70, origin: { y: 0.6 } });
+          } catch {
+            // Ignore animation failures after a confirmed payment.
+          }
+          setSuccessDetails({
+            id: booking.payment?.stripePaymentIntentId || paymentIntent.id,
+            status: 'Confirmed'
           });
-        } catch {
-          // Fallback if canvas-confetti fails — silently ignore
+          return;
         }
-
-        setSuccessDetails({
-          id: paymentIntent.id,
-          clientName: bookingDetails.clientName,
-          clientEmail: bookingDetails.clientEmail,
-          expertName: bookingDetails.expertName,
-          serviceTitle: bookingDetails.serviceTitle,
-          date: bookingDetails.scheduledAt,
-          amount: displayAmount,
-          status: 'Confirmed'
-        });
+        await new Promise((resolve) => window.setTimeout(resolve, 1000));
       }
     } catch (err) {
-      setError('Payment succeeded but confirmation failed. Please contact support.');
-      console.error('Payment verification error:', err);
+      setError(err.response?.data?.message || 'Payment was submitted, but booking confirmation is still pending. Check your bookings before trying again.');
+    } finally {
+      setConfirmationPending(false);
     }
   };
 
@@ -421,22 +413,15 @@ export default function StripeCheckoutModal({ bookingDetails, onClose, onBooking
                 <span>Expert: {bookingDetails.expertName}</span>
                 <span>Scheduled: {bookingDetails.scheduledAt}</span>
               </div>
-              <div style={{
-                marginTop: '10px',
-                paddingTop: '8px',
-                borderTop: '1px dashed var(--border-subtle)',
-                fontSize: '11px',
-                color: 'var(--text-muted)',
-                display: 'flex',
-                justifyContent: 'space-between'
-              }}>
-                <span>Platform Fee (15%): ${(platformFee / 100).toFixed(2)}</span>
-                <span>Expert Payout (85%): ${(expertPayout / 100).toFixed(2)}</span>
-              </div>
             </div>
 
             {/* Payment area — single call site, no duplicate Elements mounts */}
             {renderPaymentArea()}
+            {confirmationPending && (
+              <p role="status" style={{ marginTop: '12px', color: 'var(--text-secondary)', fontSize: '13px' }}>
+                Payment submitted. Waiting for booking confirmation from the server…
+              </p>
+            )}
 
             <div style={{ marginTop: '12px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '11px', color: 'var(--text-muted)' }}>
               <Shield size={14} />
@@ -465,7 +450,7 @@ export default function StripeCheckoutModal({ bookingDetails, onClose, onBooking
               Consultation Confirmed!
             </h3>
             <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '18px', maxWidth: '380px', margin: '0 auto 18px auto' }}>
-              Your payment has been processed and is now in escrow. A calendar invite and direct video room link have been sent to <strong>{bookingDetails.clientEmail}</strong>.
+              The server confirmed your payment for this booking.
             </p>
 
             <div style={{

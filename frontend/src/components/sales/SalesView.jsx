@@ -20,11 +20,9 @@ import {
   ChevronRight
 } from 'lucide-react';
 import paymentsAPI from '../../api/payments.js';
-import bookingsAPI from '../../api/bookings.js';
 
 export default function SalesView() {
   const [payments, setPayments] = useState([]);
-  const [bookings, setBookings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [statusFilter, setStatusFilter] = useState('all');
@@ -33,6 +31,16 @@ export default function SalesView() {
   const [totalPages, setTotalPages] = useState(1);
   const [selectedTxn, setSelectedTxn] = useState(null);
   const [isExporting, setIsExporting] = useState(false);
+
+  const formatCentsByCurrency = (records, amountInCents) => {
+    const totals = new Map();
+    records.forEach((record) => {
+      const currency = String(record.currency || 'USD').toUpperCase();
+      totals.set(currency, (totals.get(currency) || 0) + (Number(amountInCents(record)) || 0));
+    });
+    if (totals.size === 0) return new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD' }).format(0);
+    return [...totals].map(([currency, cents]) => new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(cents / 100)).join(' · ');
+  };
 
   const loadSalesData = async () => {
     try {
@@ -51,23 +59,12 @@ export default function SalesView() {
         params.search = searchQuery.trim();
       }
 
-      const [paymentsData, bookingsData] = await Promise.all([
-        paymentsAPI.listPayments(params).catch(err => {
-          console.warn('listPayments error:', err.message);
-          return { payments: [], pagination: { total: 0, pages: 1 } };
-        }),
-        bookingsAPI.getMyBookings({ limit: 100 }).catch(err => {
-          console.warn('getBookings error:', err.message);
-          return { bookings: [] };
-        })
-      ]);
+      const paymentsData = await paymentsAPI.listPayments(params);
 
       const fetchedPayments = Array.isArray(paymentsData?.payments) ? paymentsData.payments : [];
       setPayments(fetchedPayments);
       setTotalPages(paymentsData?.pagination?.pages || 1);
 
-      const fetchedBookings = Array.isArray(bookingsData?.bookings) ? bookingsData.bookings : [];
-      setBookings(fetchedBookings);
     } catch (err) {
       console.error('Error loading sales data:', err);
       setError(err.response?.data?.message || 'Failed to load sales data from backend');
@@ -92,20 +89,16 @@ export default function SalesView() {
     // Combine payments and bookings for complete financial clarity
     const completedPayments = payments.filter(p => p.status === 'completed' || p.status === 'paid');
     const pendingPayments = payments.filter(p => p.status === 'pending');
-    const refundedPayments = payments.filter(p => p.status === 'refunded' || p.refundStatus);
+    const refundedPayments = payments.filter(p => p.status === 'refunded');
 
-    const grossVolume = completedPayments.reduce((acc, p) => acc + (Number(p.amount) || 0), 0);
-    const platformRevenue = completedPayments.reduce((acc, p) => acc + (Number(p.platformFee) || Math.round((Number(p.amount) || 0) * 0.15)), 0);
-    const expertPayouts = completedPayments.reduce((acc, p) => acc + (Number(p.expertPayout) || ((Number(p.amount) || 0) - Math.round((Number(p.amount) || 0) * 0.15))), 0);
-    const pendingAmount = pendingPayments.reduce((acc, p) => acc + (Number(p.amount) || 0), 0);
-    const refundedAmount = refundedPayments.reduce((acc, p) => acc + (Number(p.refundAmount) || Number(p.amount) || 0), 0);
+    const grossCents = (payment) => (Number(payment.expertPayout ?? payment.amount) || 0) + (Number(payment.platformFee) || 0);
 
     return {
-      grossVolume,
-      platformRevenue,
-      expertPayouts,
-      pendingAmount,
-      refundedAmount,
+      grossVolume: formatCentsByCurrency(completedPayments, grossCents),
+      platformRevenue: formatCentsByCurrency(completedPayments, (payment) => payment.platformFee),
+      expertPayouts: formatCentsByCurrency(completedPayments, (payment) => payment.expertPayout ?? payment.amount),
+      pendingAmount: formatCentsByCurrency(pendingPayments, grossCents),
+      refundedAmount: formatCentsByCurrency(refundedPayments, (payment) => payment.refundAmount || grossCents(payment)),
       totalCount: payments.length,
       settledCount: completedPayments.length
     };
@@ -115,18 +108,19 @@ export default function SalesView() {
   const handleExportCSV = () => {
     try {
       setIsExporting(true);
-      const headers = ['Date', 'PaymentIntent/Txn', 'BookingNumber', 'Client', 'ClientEmail', 'Expert', 'ExpertEmail', 'GrossAmount', 'PlatformFee15%', 'ExpertPayout85%', 'Status'];
+      const headers = ['Date', 'PaymentIntent/Txn', 'BookingNumber', 'Client', 'ClientEmail', 'Expert', 'ExpertEmail', 'GrossAmount', 'PlatformFee', 'ExpertShare', 'Currency', 'Status'];
       const rows = payments.map(p => [
-        new Date(p.createdAt || Date.now()).toISOString().split('T')[0],
+        p.createdAt ? new Date(p.createdAt).toISOString().split('T')[0] : '',
         `"${p.paymentIntentId || p.id || ''}"`,
         `"${p.bookingNumber || p.bookingId || ''}"`,
         `"${p.clientName || ''}"`,
         `"${p.clientEmail || ''}"`,
         `"${p.expertName || ''}"`,
         `"${p.expertEmail || ''}"`,
-        `$${Number(p.amount || 0).toFixed(2)}`,
-        `$${Number(p.platformFee || 0).toFixed(2)}`,
-        `$${Number(p.expertPayout || 0).toFixed(2)}`,
+        ((Number(p.expertPayout ?? p.amount) + Number(p.platformFee || 0)) / 100).toFixed(2),
+        (Number(p.platformFee || 0) / 100).toFixed(2),
+        (Number((p.expertPayout ?? p.amount) || 0) / 100).toFixed(2),
+        p.currency || '',
         `"${p.status || ''}"`
       ]);
 
@@ -154,7 +148,7 @@ export default function SalesView() {
             Sales & Financial Ledger
           </h2>
           <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-            Live platform revenue, Stripe payments, 15% platform commission and 85% expert settlement
+            Recorded Stripe booking payments and their stored fee and expert-share values
           </p>
         </div>
 
@@ -192,14 +186,14 @@ export default function SalesView() {
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
             <span style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-              Gross Volume
+              Gross Volume on This Page
             </span>
             <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'rgba(59, 130, 246, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#3b82f6' }}>
               <DollarSign size={16} />
             </div>
           </div>
           <div style={{ fontSize: '26px', fontWeight: '800', color: 'var(--text-primary)' }}>
-            ${metrics.grossVolume.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+        {metrics.grossVolume}
           </div>
           <div style={{ fontSize: '12px', color: '#10b981', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
             <CheckCircle2 size={12} />
@@ -216,17 +210,17 @@ export default function SalesView() {
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
             <span style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-              Platform Fee (15%)
+              Recorded Platform Fee
             </span>
             <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'rgba(139, 92, 246, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#8b5cf6' }}>
               <TrendingUp size={16} />
             </div>
           </div>
           <div style={{ fontSize: '26px', fontWeight: '800', color: '#8b5cf6' }}>
-            ${metrics.platformRevenue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            {metrics.platformRevenue}
           </div>
           <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
-            Net ExpertHub platform revenue
+            Fee value recorded on completed transactions
           </div>
         </div>
 
@@ -239,17 +233,17 @@ export default function SalesView() {
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
             <span style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-              Expert Payouts (85%)
+              Recorded Expert Share
             </span>
             <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'rgba(16, 185, 129, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#10b981' }}>
               <ArrowUpRight size={16} />
             </div>
           </div>
           <div style={{ fontSize: '26px', fontWeight: '800', color: '#10b981' }}>
-            ${metrics.expertPayouts.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            {metrics.expertPayouts}
           </div>
           <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
-            Escrow & Stripe Connect payouts
+            Expert share recorded on completed transactions
           </div>
         </div>
 
@@ -269,10 +263,10 @@ export default function SalesView() {
             </div>
           </div>
           <div style={{ fontSize: '26px', fontWeight: '800', color: '#f59e0b' }}>
-            ${metrics.pendingAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            {metrics.pendingAmount}
           </div>
           <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
-            Refunded: ${metrics.refundedAmount.toFixed(2)}
+            Refunded on this page: {metrics.refundedAmount}
           </div>
         </div>
       </div>
@@ -381,28 +375,28 @@ export default function SalesView() {
                   <th style={{ padding: '12px 16px', fontWeight: '600', color: 'var(--text-muted)' }}>Client</th>
                   <th style={{ padding: '12px 16px', fontWeight: '600', color: 'var(--text-muted)' }}>Expert</th>
                   <th style={{ padding: '12px 16px', fontWeight: '600', color: 'var(--text-muted)' }}>Gross</th>
-                  <th style={{ padding: '12px 16px', fontWeight: '600', color: 'var(--text-muted)' }}>Platform (15%)</th>
-                  <th style={{ padding: '12px 16px', fontWeight: '600', color: 'var(--text-muted)' }}>Expert (85%)</th>
+                  <th style={{ padding: '12px 16px', fontWeight: '600', color: 'var(--text-muted)' }}>Platform Fee</th>
+                  <th style={{ padding: '12px 16px', fontWeight: '600', color: 'var(--text-muted)' }}>Expert Share</th>
                   <th style={{ padding: '12px 16px', fontWeight: '600', color: 'var(--text-muted)' }}>Status</th>
                   <th style={{ padding: '12px 16px', fontWeight: '600', color: 'var(--text-muted)' }}>Action</th>
                 </tr>
               </thead>
               <tbody>
                 {payments.map((p) => {
-                  const gross = Number(p.amount) || 0;
-                  const fee = Number(p.platformFee) || Math.round(gross * 0.15);
-                  const payout = Number(p.expertPayout) || (gross - fee);
+                  const gross = (Number(p.expertPayout ?? p.amount) || 0) + (Number(p.platformFee) || 0);
+                  const fee = Number(p.platformFee) || 0;
+                  const payout = Number(p.expertPayout ?? p.amount) || 0;
                   const isPaid = p.status === 'completed' || p.status === 'paid';
                   const isRefunded = p.status === 'refunded' || p.refundStatus;
                   const isPending = p.status === 'pending';
 
                   return (
                     <tr 
-                      key={p.id || p.paymentIntentId || Math.random()}
+                      key={p.id || p.paymentIntentId}
                       style={{ borderBottom: '1px solid var(--border-subtle)', transition: 'background 0.15s' }}
                     >
                       <td style={{ padding: '14px 16px', color: 'var(--text-primary)', whiteSpace: 'nowrap' }}>
-                        {p.createdAt ? new Date(p.createdAt).toLocaleDateString() : 'Recent'}
+                        {p.createdAt ? new Date(p.createdAt).toLocaleDateString() : '—'}
                       </td>
                       <td style={{ padding: '14px 16px', fontFamily: 'monospace', fontSize: '12px', color: 'var(--text-secondary)' }}>
                         <div>{p.bookingNumber || (p.bookingId ? `#${p.bookingId.slice(-6)}` : 'Direct')}</div>
@@ -419,13 +413,13 @@ export default function SalesView() {
                         <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{p.expertEmail || ''}</div>
                       </td>
                       <td style={{ padding: '14px 16px', fontWeight: '700', color: 'var(--text-primary)' }}>
-                        ${gross.toFixed(2)}
+                        {new Intl.NumberFormat(undefined, { style: 'currency', currency: p.currency || 'USD' }).format(gross / 100)}
                       </td>
                       <td style={{ padding: '14px 16px', color: '#8b5cf6', fontWeight: '600' }}>
-                        ${fee.toFixed(2)}
+                        {new Intl.NumberFormat(undefined, { style: 'currency', currency: p.currency || 'USD' }).format(fee / 100)}
                       </td>
                       <td style={{ padding: '14px 16px', color: '#10b981', fontWeight: '600' }}>
-                        ${payout.toFixed(2)}
+                        {new Intl.NumberFormat(undefined, { style: 'currency', currency: p.currency || 'USD' }).format(payout / 100)}
                       </td>
                       <td style={{ padding: '14px 16px' }}>
                         <span style={{

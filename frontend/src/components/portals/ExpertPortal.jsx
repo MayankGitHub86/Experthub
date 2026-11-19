@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Star, DollarSign, Calendar, Users, Clock, TrendingUp,
+  Star, Calendar, Users,
   Video, CheckCircle, ToggleLeft, ToggleRight, Award,
-  ArrowUpRight, MessageSquare, Zap, Edit3, AlertCircle, Loader,
+  MessageSquare, Zap, Edit3, AlertCircle, Loader,
   Plus, Check, Power
 } from 'lucide-react';
 import expertsAPI from '../../api/experts.js';
@@ -29,6 +29,7 @@ export default function ExpertPortal({ onJoinSession, theme }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [showProfileForm, setShowProfileForm] = useState(false);
+  const [savingAvailability, setSavingAvailability] = useState(false);
 
   const isLight = theme === 'light';
   const accentColor = isLight ? '#2563eb' : '#8b5cf6';
@@ -43,29 +44,41 @@ export default function ExpertPortal({ onJoinSession, theme }) {
       setLoading(true);
       setError(null);
 
-      // Try to fetch expert profile
-      const profile = await expertsAPI.getMyProfile().catch(() => null);
+      const profile = await expertsAPI.getMyProfile();
       if (profile) {
         setExpertProfile(profile);
-        setIsAvailable(profile.acceptingBookings ?? true);
+        setIsAvailable(profile.acceptingBookings === true);
       }
 
-      // Try to fetch bookings
-      const bookingsData = await bookingsAPI.getMyBookings({ limit: 50 }).catch(() => null);
+      const bookingsData = await bookingsAPI.getMyBookings({ limit: 50 });
       if (bookingsData?.bookings) {
         setMyBookings(bookingsData.bookings);
       }
 
-      // Try to fetch expert services
-      const servicesData = await servicesAPI.getMyServices().catch(() => null);
+      const servicesData = await servicesAPI.getMyServices();
       if (Array.isArray(servicesData)) {
         setMyServices(servicesData);
       }
     } catch (err) {
-      console.error('Failed to load data:', err);
-      // Fallback: don't show error, use empty state
+      setError(err.response?.data?.message || 'Unable to load expert portal data.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleToggleAvailability = async () => {
+    if (savingAvailability || !expertProfile) return;
+    const nextValue = !isAvailable;
+    setSavingAvailability(true);
+    setError(null);
+    try {
+      const updated = await expertsAPI.updateMyProfile({ acceptingBookings: nextValue });
+      setExpertProfile(updated);
+      setIsAvailable(updated.acceptingBookings === true);
+    } catch (err) {
+      setError(err.response?.data?.message || 'Availability could not be updated.');
+    } finally {
+      setSavingAvailability(false);
     }
   };
 
@@ -184,22 +197,14 @@ export default function ExpertPortal({ onJoinSession, theme }) {
   }
 
   // Calculate stats from bookings
-  const completedSessions = myBookings.filter(b => b.status === 'Completed').length;
-  const upcomingSessions = myBookings.filter(b => b.status === 'Confirmed' || b.status === 'In Session');
-  const totalEarned = myBookings.reduce((sum, b) => {
-    const expertFee = b.totalPrice ? Math.floor(b.totalPrice * 0.85) : 0; // 85% to expert
-    return sum + expertFee;
-  }, 0);
-  const pendingPayout = upcomingSessions.reduce((sum, b) => {
-    const expertFee = b.totalPrice ? Math.floor(b.totalPrice * 0.85) : 0;
-    return sum + expertFee;
-  }, 0);
+  const completedSessions = myBookings.filter((booking) => booking.status === 'completed');
+  const upcomingSessions = myBookings.filter((booking) => ['confirmed', 'in_progress', 'payment_pending'].includes(booking.status));
 
   const statCards = [
-    { label: 'Total Earned', value: `$${totalEarned.toLocaleString()}`, icon: DollarSign, trend: '+12%', color: '#10b981' },
-    { label: 'This Month', value: `$${(totalEarned * 0.3).toLocaleString('en-US', { maximumFractionDigits: 0 })}`, icon: TrendingUp, trend: '+8%', color: '#3b82f6' },
-    { label: 'Pending Payout', value: `$${pendingPayout}`, icon: Clock, trend: null, color: '#f59e0b' },
-    { label: 'Total Sessions', value: myBookings.length, icon: Users, trend: `${completedSessions} done`, color: '#8b5cf6' },
+    { label: 'Total Sessions', value: myBookings.length, icon: Users, detail: 'Recorded bookings', color: '#8b5cf6' },
+    { label: 'Completed', value: completedSessions.length, icon: CheckCircle, detail: 'Completed bookings', color: '#10b981' },
+    { label: 'Upcoming', value: upcomingSessions.length, icon: Calendar, detail: 'Scheduled bookings', color: '#3b82f6' },
+    { label: 'Profile status', value: expertProfile.verificationStatus || 'draft', icon: Award, detail: 'Verification state', color: '#f59e0b' },
   ];
 
   const reviews = expertProfile.reviews || [];
@@ -223,6 +228,7 @@ export default function ExpertPortal({ onJoinSession, theme }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+      {error && <p role="alert" style={{ color: '#ef4444', margin: 0 }}>{error}</p>}
       {/* Expert Hero Header */}
       <div style={{
         display: 'flex',
@@ -322,8 +328,10 @@ export default function ExpertPortal({ onJoinSession, theme }) {
             </div>
           </div>
           <button
-            onClick={() => setIsAvailable(!isAvailable)}
-            style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: isAvailable ? '#10b981' : 'rgba(255,255,255,0.4)', display: 'flex' }}
+            onClick={handleToggleAvailability}
+            disabled={savingAvailability}
+            aria-label={isAvailable ? 'Stop accepting bookings' : 'Accept bookings'}
+            style={{ background: 'transparent', border: 'none', cursor: savingAvailability ? 'wait' : 'pointer', color: isAvailable ? '#10b981' : 'rgba(255,255,255,0.4)', display: 'flex' }}
           >
             {isAvailable ? <ToggleRight size={40} /> : <ToggleLeft size={40} />}
           </button>
@@ -353,12 +361,7 @@ export default function ExpertPortal({ onJoinSession, theme }) {
               <div style={{ fontSize: '24px', fontWeight: '800', color: 'var(--text-primary)', marginBottom: '6px' }}>
                 {card.value}
               </div>
-              {card.trend && (
-                <div style={{ fontSize: '12px', color: '#10b981', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  <ArrowUpRight size={12} />
-                  {card.trend} vs last month
-                </div>
-              )}
+              <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{card.detail}</div>
             </div>
           );
         })}
@@ -405,7 +408,7 @@ export default function ExpertPortal({ onJoinSession, theme }) {
                     {s.clientId?.firstName} {s.clientId?.lastName}
                   </div>
                   <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                    {new Date(s.startTime).toLocaleDateString()} • {new Date(s.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    {s.scheduledAt ? new Date(s.scheduledAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : 'Schedule unavailable'}
                   </div>
                   <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
                     {s.serviceId?.title || 'Consultation'}
@@ -469,26 +472,27 @@ export default function ExpertPortal({ onJoinSession, theme }) {
               </div>
               <div style={{ textAlign: 'center' }}>
                 <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '2px' }}>
-                  {new Date(s.startTime).toLocaleDateString()} • {new Date(s.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  {s.scheduledAt ? new Date(s.scheduledAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : 'Schedule unavailable'}
                 </div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
                 <div style={{ textAlign: 'right' }}>
-                  <div style={{ fontSize: '16px', fontWeight: '800', color: '#10b981' }}>
-                    +${Math.floor((s.totalPrice || 0) * 0.85)}
+                  <div style={{ fontSize: '14px', fontWeight: '700', color: 'var(--text-primary)' }}>
+                    {Number.isFinite(Number(s.totalAmount)) ? new Intl.NumberFormat(undefined, { style: 'currency', currency: s.pricing?.currency || 'USD' }).format(Number(s.totalAmount)) : 'Amount unavailable'}
                   </div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>your earnings</div>
+                  <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>booking total</div>
                 </div>
                 <span style={{
                   padding: '6px 12px',
                   borderRadius: '6px',
                   fontSize: '11px',
                   fontWeight: '600',
-                  backgroundColor: s.status === 'Completed' ? '#dcfce7' : s.status === 'In Session' ? accentColor + '18' : '#f3f4f6',
-                  color: s.status === 'Completed' ? '#16a34a' : s.status === 'In Session' ? accentColor : '#6b7280',
+                  backgroundColor: s.status === 'completed' ? '#dcfce7' : s.status === 'in_progress' ? accentColor + '18' : '#f3f4f6',
+                  color: s.status === 'completed' ? '#16a34a' : s.status === 'in_progress' ? accentColor : '#6b7280',
                 }}>
                   {s.status}
                 </span>
+                {onJoinSession && <button type="button" onClick={() => onJoinSession(s)} className="filter-btn">Message</button>}
               </div>
             </div>
           )) : (

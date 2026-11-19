@@ -38,12 +38,9 @@ export const authAPI = {
   logout: async () => {
     try {
       await client.post('/auth/logout');
-    } catch (error) {
-      console.error('Logout error:', error);
-    }
+    } catch {}
     // Always clear tokens locally
     localStorage.removeItem('accessToken');
-    localStorage.removeItem('refreshToken');
     localStorage.removeItem('user');
   },
 
@@ -58,9 +55,8 @@ export const authAPI = {
   /**
    * Refresh access token
    */
-  refreshToken: async (refreshToken) => {
+  refreshToken: async () => {
     const response = await client.post('/auth/refresh-token', {
-      refreshToken,
     });
     return response.data.data;
   },

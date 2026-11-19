@@ -34,6 +34,7 @@ export default function CustomersView() {
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [customerDetailsLoading, setCustomerDetailsLoading] = useState(false);
   const [customerBookings, setCustomerBookings] = useState([]);
+  const [customerDetailsError, setCustomerDetailsError] = useState('');
 
   const loadCustomers = async () => {
     try {
@@ -79,12 +80,14 @@ export default function CustomersView() {
     setSelectedCustomer(customer);
     setCustomerDetailsLoading(true);
     setCustomerBookings([]);
+    setCustomerDetailsError('');
 
     try {
       const details = await usersAPI.getUserDetails(customer.id);
       setCustomerBookings(details?.bookings || []);
     } catch (err) {
       console.error('Failed to load customer details:', err);
+      setCustomerDetailsError(err.response?.data?.message || 'Failed to load consultation history.');
     } finally {
       setCustomerDetailsLoading(false);
     }
@@ -145,7 +148,7 @@ export default function CustomersView() {
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
             <span style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-              Active Clients
+              Active on Page
             </span>
             <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'rgba(16, 185, 129, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#10b981' }}>
               <UserCheck size={16} />
@@ -155,7 +158,7 @@ export default function CustomersView() {
             {customers.filter(c => c.status === 'active').length}
           </div>
           <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
-            Verified & booking eligible
+            Active accounts in this page
           </div>
         </div>
 
@@ -167,17 +170,17 @@ export default function CustomersView() {
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
             <span style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-              Total Sessions Held
+              Completed Sessions
             </span>
             <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: 'rgba(139, 92, 246, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#8b5cf6' }}>
               <BookOpen size={16} />
             </div>
           </div>
           <div style={{ fontSize: '26px', fontWeight: '800', color: '#8b5cf6' }}>
-            {customers.reduce((acc, c) => acc + (c.totalBookings || 0), 0)}
+            {customers.reduce((acc, c) => acc + (c.completedBookings || 0), 0)}
           </div>
           <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
-            Client consultation sessions
+            Completed bookings in this page
           </div>
         </div>
       </div>
@@ -226,6 +229,9 @@ export default function CustomersView() {
             <input
               type="text"
               placeholder="Search by name or email..."
+              id="customer-search"
+              name="search"
+              aria-label="Search customers by name or email"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               style={{
@@ -290,7 +296,9 @@ export default function CustomersView() {
                   <th style={{ padding: '12px 16px', fontWeight: '600', color: 'var(--text-muted)' }}>Role</th>
                   <th style={{ padding: '12px 16px', fontWeight: '600', color: 'var(--text-muted)' }}>Registered</th>
                   <th style={{ padding: '12px 16px', fontWeight: '600', color: 'var(--text-muted)' }}>Total Bookings</th>
-                  <th style={{ padding: '12px 16px', fontWeight: '600', color: 'var(--text-muted)' }}>Total Spend</th>
+                  <th style={{ padding: '12px 16px', fontWeight: '600', color: 'var(--text-muted)' }}>Completed</th>
+                  <th style={{ padding: '12px 16px', fontWeight: '600', color: 'var(--text-muted)' }}>Cancelled</th>
+                  <th style={{ padding: '12px 16px', fontWeight: '600', color: 'var(--text-muted)' }}>Settled Spend</th>
                   <th style={{ padding: '12px 16px', fontWeight: '600', color: 'var(--text-muted)' }}>Status</th>
                   <th style={{ padding: '12px 16px', fontWeight: '600', color: 'var(--text-muted)' }}>Action</th>
                 </tr>
@@ -345,6 +353,8 @@ export default function CustomersView() {
                     <td style={{ padding: '14px 16px', fontWeight: '600', color: 'var(--text-primary)' }}>
                       {c.totalBookings || 0} sessions
                     </td>
+                    <td style={{ padding: '14px 16px', color: 'var(--text-primary)' }}>{c.completedBookings || 0}</td>
+                    <td style={{ padding: '14px 16px', color: 'var(--text-primary)' }}>{c.cancelledBookings || 0}</td>
                     <td style={{ padding: '14px 16px', fontWeight: '700', color: '#10b981' }}>
                       ${(Number(c.totalSpent) || 0).toFixed(2)}
                     </td>
@@ -475,6 +485,8 @@ export default function CustomersView() {
                 <RefreshCw size={20} className="spinner" style={{ margin: '0 auto 8px' }} />
                 <div>Loading booking history...</div>
               </div>
+            ) : customerDetailsError ? (
+              <div role="alert" style={{ padding: '24px', color: '#ef4444', fontSize: '13px' }}>{customerDetailsError}</div>
             ) : customerBookings.length === 0 ? (
               <div style={{ padding: '24px', textAlign: 'center', backgroundColor: 'var(--surface-input)', borderRadius: '8px', color: 'var(--text-muted)', fontSize: '13px' }}>
                 No recorded consultation bookings for this client yet.
@@ -497,7 +509,7 @@ export default function CustomersView() {
                   >
                     <div>
                       <div style={{ fontWeight: '600', color: 'var(--text-primary)' }}>
-                        {b.serviceId?.title || 'Advisory Session'}
+                        {b.serviceId?.title || 'Consultation'}
                       </div>
                       <div style={{ color: 'var(--text-muted)', fontSize: '11px' }}>
                         {b.scheduledAt ? new Date(b.scheduledAt).toLocaleString() : 'Scheduled'}
@@ -505,7 +517,7 @@ export default function CustomersView() {
                     </div>
                     <div style={{ textAlign: 'right' }}>
                       <div style={{ fontWeight: '700', color: 'var(--text-primary)' }}>
-                        ${b.totalAmount || 0}
+                        {b.pricing?.currency || 'USD'} {Number(b.totalAmount || 0).toFixed(2)}
                       </div>
                       <span style={{
                         padding: '2px 6px',

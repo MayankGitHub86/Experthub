@@ -7,7 +7,7 @@ import bookingsAPI from '../../api/bookings.js';
 import expertsAPI from '../../api/experts.js';
 import ReviewModal from '../marketplace/ReviewModal.jsx';
 
-export default function ClientPortal({ theme, onBook, onViewProfile, onJoinSession, currentUser }) {
+export default function ClientPortal({ theme, onBook, onBrowseExperts, onViewProfile, onJoinSession, currentUser }) {
   const [activeReview, setActiveReview] = useState(null);
   const [myBookings, setMyBookings] = useState([]);
   const [expertsList, setExpertsList] = useState([]);
@@ -25,14 +25,8 @@ export default function ClientPortal({ theme, onBook, onViewProfile, onJoinSessi
       setError(null);
 
       const [bookingsRes, expertsRes] = await Promise.all([
-        bookingsAPI.getMyBookings({ limit: 50 }).catch(err => {
-          console.warn('Could not load client bookings:', err.message);
-          return { bookings: [] };
-        }),
-        expertsAPI.getAll().catch(err => {
-          console.warn('Could not load experts list:', err.message);
-          return [];
-        })
+        bookingsAPI.getMyBookings({ limit: 50 }),
+        expertsAPI.getAll(),
       ]);
 
       const loadedBookings = Array.isArray(bookingsRes?.bookings) ? bookingsRes.bookings : [];
@@ -41,8 +35,7 @@ export default function ClientPortal({ theme, onBook, onViewProfile, onJoinSessi
       const loadedExperts = Array.isArray(expertsRes) ? expertsRes : (expertsRes?.experts || []);
       setExpertsList(loadedExperts);
     } catch (err) {
-      console.error('Error in ClientPortal loadClientData:', err);
-      setError('Unable to load client portal data');
+      setError(err.response?.data?.message || 'Unable to load client portal data.');
     } finally {
       setLoading(false);
     }
@@ -52,12 +45,20 @@ export default function ClientPortal({ theme, onBook, onViewProfile, onJoinSessi
     loadClientData();
   }, []);
 
-  const totalSpent = myBookings.reduce((s, b) => s + (Number(b.totalPrice || b.amount || b.totalAmount) || 0), 0);
-  const completedSessions = myBookings.filter(b => b.status === 'completed' || b.status === 'Completed');
-  const upcomingSessions = myBookings.filter(b => b.status === 'confirmed' || b.status === 'Confirmed' || b.status === 'payment_pending');
+  const paidBookings = myBookings.filter((booking) => Boolean(booking.payment?.paidAt) || booking.status === 'paid' || booking.status === 'completed');
+  const totalSpentByCurrency = new Map();
+  paidBookings.forEach((booking) => {
+    const currency = String(booking.pricing?.currency || 'USD').toUpperCase();
+    totalSpentByCurrency.set(currency, (totalSpentByCurrency.get(currency) || 0) + (Number(booking.totalAmount) || 0));
+  });
+  const totalSpent = totalSpentByCurrency.size
+    ? [...totalSpentByCurrency].map(([currency, amount]) => new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(amount)).join(' · ')
+    : new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD' }).format(0);
+  const completedSessions = myBookings.filter((booking) => booking.status === 'completed');
+  const upcomingSessions = myBookings.filter((booking) => ['confirmed', 'payment_pending', 'paid', 'in_progress'].includes(booking.status));
 
   const statCards = [
-    { label: 'Total Spent', value: `$${totalSpent.toLocaleString()}`, icon: DollarSign, color: '#3b82f6', sub: 'across all sessions' },
+    { label: 'Paid Booking Total', value: totalSpent, icon: DollarSign, color: '#3b82f6', sub: 'from server-confirmed payments' },
     { label: 'Sessions Booked', value: myBookings.length, icon: BookOpen, color: '#8b5cf6', sub: `${completedSessions.length} completed` },
     { label: 'Upcoming', value: upcomingSessions.length, icon: Calendar, color: '#10b981', sub: 'consultations scheduled' },
     { label: 'Available Experts', value: expertsList.length, icon: Heart, color: '#f59e0b', sub: 'verified advisors' },
@@ -94,7 +95,8 @@ export default function ClientPortal({ theme, onBook, onViewProfile, onJoinSessi
         </div>
         <div style={{ display: 'flex', gap: '12px' }}>
           <button
-            onClick={() => onBook && onBook(expertsList[0] || null)}
+            onClick={() => expertsList[0] ? onBook?.(expertsList[0]) : onBrowseExperts?.()}
+            disabled={expertsList.length === 0 && !onBrowseExperts}
             style={{
               padding: '12px 20px', borderRadius: '10px', border: 'none',
               background: 'linear-gradient(135deg, #8b5cf6, #6366f1)',
@@ -165,7 +167,7 @@ export default function ClientPortal({ theme, onBook, onViewProfile, onJoinSessi
                 Browse verified experts to schedule your first 1-on-1 session.
               </p>
               <button
-                onClick={() => onBook && onBook(expertsList[0] || null)}
+                onClick={() => onBrowseExperts?.()}
                 className="btn-pro"
                 style={{ padding: '6px 14px', fontSize: '12px' }}
               >
@@ -175,10 +177,12 @@ export default function ClientPortal({ theme, onBook, onViewProfile, onJoinSessi
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '320px', overflowY: 'auto' }}>
               {myBookings.map(b => {
-                const expertName = b.expertId?.user ? `${b.expertId.user.firstName} ${b.expertId.user.lastName}` : (b.expertName || 'Advisor');
+                const expertId = b.expertId?._id || b.expertId;
+                const expert = expertsList.find((item) => String(item._id) === String(expertId));
+                const expertName = expert ? `${expert.firstName || ''} ${expert.lastName || ''}`.trim() : 'Expert';
                 const serviceTitle = b.serviceId?.title || b.serviceTitle || 'Consultation Session';
-                const scheduledTime = b.scheduledAt ? new Date(b.scheduledAt).toLocaleString() : 'Scheduled';
-                const price = b.totalAmount || b.totalPrice || b.amount || 0;
+                const scheduledTime = b.scheduledAt ? new Date(b.scheduledAt).toLocaleString() : 'Schedule unavailable';
+                const price = Number.isFinite(Number(b.totalAmount)) ? new Intl.NumberFormat(undefined, { style: 'currency', currency: b.pricing?.currency || 'USD' }).format(Number(b.totalAmount)) : 'Amount unavailable';
 
                 return (
                   <div key={b._id || b.id} style={{
@@ -195,7 +199,7 @@ export default function ClientPortal({ theme, onBook, onViewProfile, onJoinSessi
                           {expertName}
                         </div>
                         <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                          {serviceTitle} • {scheduledTime} • ${price}
+                          {serviceTitle} • {scheduledTime} • {price}
                         </div>
                       </div>
                     </div>

@@ -84,16 +84,28 @@ export const servicesAPI = {
    * GET /api/v1/services
    */
   getAll: async (filters = {}) => {
-    const params = new URLSearchParams();
-    
-    if (filters.expertId) params.append('expertId', filters.expertId);
-    if (filters.category) params.append('category', filters.category);
-    if (filters.skip) params.append('skip', filters.skip);
-    if (filters.limit) params.append('limit', filters.limit);
-    
-    const query = params.toString() ? `?${params.toString()}` : '';
-    const response = await client.get(`/services${query}`);
-    return response.data.data;
+    const page = Number(filters.page) || 1;
+    const limit = Math.min(100, Number(filters.limit) || 100);
+    const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+    ['expertId', 'category', 'query', 'minPrice', 'maxPrice', 'minDuration', 'maxDuration', 'sortBy'].forEach((key) => {
+      if (filters[key] !== undefined && filters[key] !== '') params.set(key, String(filters[key]));
+    });
+    if (filters.tags) params.set('tags', Array.isArray(filters.tags) ? filters.tags.join(',') : filters.tags);
+
+    const response = await client.get(`/services?${params.toString()}`);
+    const services = Array.isArray(response.data.data) ? response.data.data : response.data.data?.services || [];
+    const pagination = response.data.pagination || {};
+    const pages = Number(pagination.pages) || page;
+    if (pages <= page) return services;
+
+    const remaining = await Promise.all(Array.from({ length: pages - page }, (_, index) => {
+      const nextParams = new URLSearchParams(params);
+      nextParams.set('page', String(page + index + 1));
+      return client.get(`/services?${nextParams.toString()}`).then((result) =>
+        Array.isArray(result.data.data) ? result.data.data : result.data.data?.services || []
+      );
+    }));
+    return [services, ...remaining].flat();
   },
 
   /**

@@ -44,30 +44,44 @@ let isRefreshing = false;
 let refreshSubscribers = [];
 
 const onRefreshed = (token) => {
-  refreshSubscribers.forEach((callback) => callback(token));
+  refreshSubscribers.forEach(({ resolve }) => resolve(token));
   refreshSubscribers = [];
 };
 
-const addRefreshSubscriber = (callback) => {
-  refreshSubscribers.push(callback);
+const onRefreshFailed = (error) => {
+  refreshSubscribers.forEach(({ reject }) => reject(error));
+  refreshSubscribers = [];
+};
+
+const addRefreshSubscriber = (resolve, reject) => {
+  refreshSubscribers.push({ resolve, reject });
 };
 
 client.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config;
+    const publicAuthEndpoints = [
+      '/auth/login',
+      '/auth/register',
+      '/auth/refresh-token',
+      '/auth/forgot-password',
+      '/auth/reset-password',
+      '/auth/verify-email/',
+    ];
+    const isPublicAuthRequest = publicAuthEndpoints.some((endpoint) => originalRequest?.url?.includes(endpoint));
 
     // Handle 401 Unauthorized
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    if (error.response?.status === 401 && !originalRequest._retry && !isPublicAuthRequest) {
       originalRequest._retry = true;
 
       if (isRefreshing) {
         // If refresh is in progress, queue this request
-        return new Promise((resolve) => {
+        return new Promise((resolve, reject) => {
           addRefreshSubscriber((token) => {
             originalRequest.headers.Authorization = `Bearer ${token}`;
             resolve(client(originalRequest));
-          });
+          }, reject);
         });
       }
 
@@ -75,14 +89,7 @@ client.interceptors.response.use(
 
       try {
         // Try to refresh the token
-        const refreshToken = localStorage.getItem('refreshToken');
-        if (!refreshToken) {
-          throw new Error('No refresh token');
-        }
-
-        const response = await axios.post(`${API_BASE_URL}/auth/refresh-token`, {
-          refreshToken,
-        });
+        const response = await axios.post(`${API_BASE_URL}/auth/refresh-token`, {}, { withCredentials: true });
 
         const { accessToken } = response.data.data;
         localStorage.setItem('accessToken', accessToken);
@@ -98,7 +105,8 @@ client.interceptors.response.use(
         isRefreshing = false;
         // Clear auth tokens and redirect to login
         localStorage.removeItem('accessToken');
-        localStorage.removeItem('refreshToken');
+        localStorage.removeItem('user');
+        onRefreshFailed(refreshError);
         window.location.href = '/';
         return Promise.reject(refreshError);
       }

@@ -53,7 +53,7 @@ export const authenticate = async (req, res, next) => {
     }
     
     // Get user from database
-    const user = await User.findById(decoded.sub);
+    const user = await User.findById(decoded.sub).select('+tokenVersion');
     
     if (!user) {
       return res.status(401).json({
@@ -61,6 +61,10 @@ export const authenticate = async (req, res, next) => {
         code: 'USER_NOT_FOUND',
         message: 'User not found.',
       });
+    }
+
+    if ((decoded.ver ?? 0) !== (user.tokenVersion ?? 0)) {
+      return res.status(401).json({ status: 'error', code: 'SESSION_REVOKED', message: 'Session ended. Please sign in again.' });
     }
     
     // Check if user is active

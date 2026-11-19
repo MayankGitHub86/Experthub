@@ -139,7 +139,7 @@ export default function Sidebar({ activeTab, setActiveTab, theme, setTheme, onOp
               />
               <div>
                 <div style={{ fontSize: '13px', fontWeight: '600', color: '#ffffff', lineHeight: '1.2' }}>
-                  {currentUser?.name || (isLight ? 'Michael Anderson' : 'Alex Morgan')}
+                  {currentUser?.name || currentUser?.firstName || 'Account'}
                 </div>
                 <div style={{ fontSize: '11px', color: '#94a3b8', textTransform: 'capitalize' }}>
                   {currentUser?.role || 'Admin'}
@@ -164,7 +164,7 @@ export default function Sidebar({ activeTab, setActiveTab, theme, setTheme, onOp
               zIndex: 100
             }}>
               <div style={{ padding: '6px 8px', fontSize: '11px', color: '#94a3b8', borderBottom: '1px solid rgba(255, 255, 255, 0.06)' }}>
-                Signed in as <strong>{currentUser?.email || 'admin@experthub.com'}</strong>
+                Signed in as <strong>{currentUser?.email || '—'}</strong>
               </div>
               <button
                 onClick={() => { setShowUserMenu(false); onLogout && onLogout(); }}

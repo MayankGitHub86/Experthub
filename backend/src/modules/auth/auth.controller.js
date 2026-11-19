@@ -20,13 +20,20 @@ class AuthController {
       
       // TODO: Send verification email with result.verificationToken
       
+      res.cookie('refreshToken', result.refreshToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'strict',
+        path: '/api/v1/auth',
+        maxAge: 7 * 24 * 60 * 60 * 1000,
+      });
+
       res.status(201).json({
         status: 'success',
         message: 'Registration successful. Please check your email to verify your account.',
         data: {
           user: result.user,
           accessToken: result.accessToken,
-          refreshToken: result.refreshToken,
         },
       });
     } catch (error) {
@@ -49,6 +56,7 @@ class AuthController {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production', // HTTPS only in production
         sameSite: 'strict',
+        path: '/api/v1/auth',
         maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
       });
       
@@ -58,7 +66,6 @@ class AuthController {
         data: {
           user: result.user,
           accessToken: result.accessToken,
-          refreshToken: result.refreshToken,
         },
       });
     } catch (error) {
@@ -73,9 +80,9 @@ class AuthController {
   async logout(req, res, next) {
     try {
       // Clear refresh token cookie
-      res.clearCookie('refreshToken');
+      res.clearCookie('refreshToken', { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'strict', path: '/api/v1/auth' });
       
-      // TODO: Add refresh token to blacklist/revocation list
+      await authService.revokeSessions(req.user._id);
       
       logger.info('User logged out', { userId: req.user?._id });
       
@@ -94,8 +101,7 @@ class AuthController {
    */
   async refreshToken(req, res, next) {
     try {
-      // Get refresh token from cookie or body
-      const refreshToken = req.cookies.refreshToken || req.body.refreshToken;
+      const refreshToken = req.cookies.refreshToken;
       
       if (!refreshToken) {
         return res.status(401).json({

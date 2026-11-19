@@ -22,8 +22,8 @@ export default function ExpertProfileModal({ expert, onClose, onSelectPackage })
         title: s.title || s.name,
         desc: s.description || s.desc || '',
         duration: typeof s.duration === 'number' ? `${s.duration} mins` : s.duration,
-        price: s.pricing?.amount || s.price || expert.hourlyRate || 100,
-      })));
+        price: s.pricing?.amount ?? s.price,
+      })).filter((service) => Number.isFinite(Number(service.price))));
       return;
     }
 
@@ -38,8 +38,8 @@ export default function ExpertProfileModal({ expert, onClose, onSelectPackage })
               title: s.title,
               desc: s.description || '',
               duration: `${s.duration} mins`,
-              price: s.pricing?.amount || 100,
-            })));
+              price: s.pricing?.amount,
+            })).filter((service) => Number.isFinite(Number(service.price))));
           }
         })
         .catch(err => {
@@ -54,13 +54,14 @@ export default function ExpertProfileModal({ expert, onClose, onSelectPackage })
   if (!expert) return null;
 
   const expertName = expert.name || `${expert.firstName || ''} ${expert.lastName || ''}`.trim() || 'Expert';
-  const expertAvatar = expert.avatar || expert.profilePicture || 'https://via.placeholder.com/84?text=Expert';
+  const expertAvatar = expert.avatar || expert.profilePicture;
   const expertRole = expert.role || expert.headline || 'Verified Consultant';
-  const expertCompany = expert.company || 'ExpertHub Verified';
-  const expertRating = expert.rating || (expert.stats?.rating ? expert.stats.rating.toFixed(1) : '5.0');
+  const expertCompany = expert.company || '';
+  const expertRatingValue = Number(expert.stats?.rating || expert.rating) || 0;
+  const expertRating = expertRatingValue ? expertRatingValue.toFixed(1) : 'New';
   const expertReviewsCount = expert.reviewsCount || expert.stats?.reviewCount || 0;
   const expertTags = expert.tags || expert.skills || [];
-  const expertBadge = expert.badge || (expert.verificationStatus === 'approved' ? 'Top Rated' : 'Verified');
+  const expertBadge = expert.badge || (expert.verificationStatus === 'approved' ? 'Verified' : 'Profile');
   const isVerified = expert.verified || expert.verificationStatus === 'approved';
 
   return (
@@ -77,11 +78,7 @@ export default function ExpertProfileModal({ expert, onClose, onSelectPackage })
         {/* Header Profile Section */}
         <div style={{ display: 'flex', gap: '20px', alignItems: 'flex-start', marginBottom: '24px' }}>
           <div style={{ position: 'relative' }}>
-            <img 
-              src={expertAvatar} 
-              alt={expertName} 
-              style={{ width: '84px', height: '84px', borderRadius: '18px', objectFit: 'cover' }}
-            />
+            {expertAvatar ? <img src={expertAvatar} alt={expertName} style={{ width: '84px', height: '84px', borderRadius: '18px', objectFit: 'cover' }} /> : <div aria-hidden="true" style={{ width: '84px', height: '84px', borderRadius: '18px', display: 'grid', placeItems: 'center', background: 'var(--surface-input)', color: 'var(--text-primary)', fontWeight: 700, fontSize: '24px' }}>{expertName.split(' ').map((part) => part[0]).join('').slice(0, 2)}</div>}
             {isVerified && (
               <div 
                 style={{
@@ -123,14 +120,14 @@ export default function ExpertProfileModal({ expert, onClose, onSelectPackage })
               {expertRole}
             </div>
             <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-              {expertCompany}
+            {expertCompany}
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginTop: '12px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#fbbf24', fontSize: '13px', fontWeight: '600' }}>
                 <Star size={15} fill="#fbbf24" stroke="#fbbf24" />
                 <span>{expertRating}</span>
-                <span style={{ color: 'var(--text-muted)', fontWeight: '400' }}>({expertReviewsCount} verified reviews)</span>
+                <span style={{ color: 'var(--text-muted)', fontWeight: '400' }}>({expertReviewsCount} reviews)</span>
               </div>
               <div style={{ fontSize: '13px', color: 'var(--text-primary)', fontWeight: '700' }}>
                 ${expert.hourlyRate || 100}/hr
@@ -230,17 +227,7 @@ export default function ExpertProfileModal({ expert, onClose, onSelectPackage })
                   fontSize: '13px',
                   textAlign: 'center'
                 }}>
-                  No packages currently listed. Standard consultation rate is ${expert.hourlyRate || 100}/hr.
-                  <div style={{ marginTop: '10px' }}>
-                    <button 
-                      className="btn-pro" 
-                      style={{ padding: '8px 16px', width: 'auto' }}
-                      onClick={() => onSelectPackage(expert, { id: 'standard', title: 'Consultation Session', price: expert.hourlyRate || 100, duration: '60 mins' })}
-                    >
-                      <Calendar size={13} />
-                      <span>Book Standard Session</span>
-                    </button>
-                  </div>
+                  This expert has no active, approved services available to book right now.
                 </div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
@@ -298,7 +285,7 @@ export default function ExpertProfileModal({ expert, onClose, onSelectPackage })
         {activeTab === 'reviews' && (
           <ReviewsSection 
             reviews={expert.reviews || []} 
-            averageRating={parseFloat(expertRating) || 5.0} 
+            averageRating={expertRatingValue}
             totalCount={expertReviewsCount} 
           />
         )}

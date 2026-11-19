@@ -1,9 +1,43 @@
 import React, { useState, useEffect } from 'react';
 import { Search, X, Sparkles, Users, ShoppingBag, ArrowRight } from 'lucide-react';
-import { mockExperts } from '../../data/mockExperts';
+import expertsAPI from '../../api/experts.js';
 
 export default function SearchModal({ isOpen, onClose, onSelectExpert, onNavigate }) {
   const [query, setQuery] = useState('');
+  const [experts, setExperts] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [searchError, setSearchError] = useState('');
+
+  useEffect(() => {
+    if (!isOpen || !query.trim()) {
+      setExperts([]);
+      setSearchError('');
+      setLoading(false);
+      return undefined;
+    }
+
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      setLoading(true);
+      setSearchError('');
+      try {
+        const results = await expertsAPI.getAll({ query: query.trim() });
+        if (!cancelled) setExperts(Array.isArray(results) ? results : []);
+      } catch (err) {
+        if (!cancelled) {
+          setExperts([]);
+          setSearchError(err.response?.data?.message || 'Expert search is unavailable right now.');
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [isOpen, query]);
 
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -20,12 +54,6 @@ export default function SearchModal({ isOpen, onClose, onSelectExpert, onNavigat
   }, [onClose]);
 
   if (!isOpen) return null;
-
-  const filteredExperts = mockExperts.filter(exp => 
-    exp.name.toLowerCase().includes(query.toLowerCase()) ||
-    exp.role.toLowerCase().includes(query.toLowerCase()) ||
-    exp.tags.some(t => t.toLowerCase().includes(query.toLowerCase()))
-  );
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -99,12 +127,13 @@ export default function SearchModal({ isOpen, onClose, onSelectExpert, onNavigat
         {query && (
           <div>
             <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginBottom: '8px', textTransform: 'uppercase' }}>
-              Matching Experts ({filteredExperts.length})
+              {loading ? 'Searching experts…' : `Matching Experts (${experts.length})`}
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '300px', overflowY: 'auto' }}>
-              {filteredExperts.map(exp => (
+              {searchError && <div role="alert" style={{ color: '#ef4444', fontSize: '13px' }}>{searchError}</div>}
+              {experts.map(exp => (
                 <div 
-                  key={exp.id}
+                  key={exp._id}
                   onClick={() => { onSelectExpert(exp); onClose(); }}
                   style={{
                     display: 'flex',
@@ -118,18 +147,18 @@ export default function SearchModal({ isOpen, onClose, onSelectExpert, onNavigat
                   }}
                 >
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <img src={exp.avatar} alt={exp.name} style={{ width: '32px', height: '32px', borderRadius: '50%', objectFit: 'cover' }} />
+                    {exp.profilePicture ? <img src={exp.profilePicture} alt="" style={{ width: '32px', height: '32px', borderRadius: '50%', objectFit: 'cover' }} /> : <span aria-hidden="true" style={{ width: '32px', height: '32px', borderRadius: '50%', display: 'grid', placeItems: 'center', background: 'var(--surface-card)', color: 'var(--text-primary)', fontSize: '11px' }}>{`${exp.firstName?.[0] || ''}${exp.lastName?.[0] || ''}`}</span>}
                     <div>
-                      <div style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)' }}>{exp.name}</div>
-                      <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{exp.role}</div>
+                      <div style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text-primary)' }}>{`${exp.firstName || ''} ${exp.lastName || ''}`.trim()}</div>
+                      <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{exp.headline || 'Expert'}</div>
                     </div>
                   </div>
                   <div style={{ fontSize: '12px', fontWeight: '600', color: 'var(--accent-purple-light)' }}>
-                    ${exp.hourlyRate}/hr
+                    {Number.isFinite(Number(exp.hourlyRate)) ? `$${exp.hourlyRate}/hr` : 'View profile'}
                   </div>
                 </div>
               ))}
-              {filteredExperts.length === 0 && (
+              {!loading && !searchError && experts.length === 0 && (
                 <div style={{ textAlign: 'center', padding: '20px', color: 'var(--text-muted)', fontSize: '13px' }}>
                   No experts found matching "{query}"
                 </div>

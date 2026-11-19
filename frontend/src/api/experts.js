@@ -6,6 +6,15 @@ import client from './client.js';
  */
 
 export const expertsAPI = {
+  async getMyProfile() {
+    const response = await client.get('/experts/me/profile');
+    return response.data.data;
+  },
+
+  async updateMyProfile(updates) {
+    const response = await client.patch('/experts/me', updates);
+    return response.data.data;
+  },
   /**
    * Get all experts (public listing)
    * GET /api/v1/experts
@@ -17,16 +26,21 @@ export const expertsAPI = {
    * @returns {Promise} { experts: [...], pagination: {...} }
    */
   async getAll(options = {}) {
-    const params = new URLSearchParams();
-    
-    if (options.search) params.append('search', options.search);
-    if (options.page) params.append('page', options.page);
-    if (options.limit) params.append('limit', options.limit);
-    
-    const query = params.toString() ? `?${params.toString()}` : '';
-    const response = await client.get(`/experts${query}`);
-    
-    return Array.isArray(response.data.data) ? response.data.data : response.data.data.experts || [];
+    const page = Number(options.page) || 1;
+    const limit = Math.min(100, Number(options.limit) || 100);
+    const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+    if (options.query || options.search) params.set('query', options.query || options.search);
+    const response = await client.get(`/experts?${params.toString()}`);
+    const firstPage = Array.isArray(response.data.data) ? response.data.data : response.data.data.experts || [];
+    const pageCount = Number(response.data.pagination?.pages) || 1;
+    if (pageCount <= page) return firstPage;
+
+    const remaining = await Promise.all(Array.from({ length: pageCount - page }, (_, index) => {
+      const nextParams = new URLSearchParams(params);
+      nextParams.set('page', String(page + index + 1));
+      return client.get(`/experts?${nextParams.toString()}`).then((result) => Array.isArray(result.data.data) ? result.data.data : result.data.data.experts || []);
+    }));
+    return [firstPage, ...remaining].flat();
   },
 
   /**
@@ -100,7 +114,7 @@ export const expertsAPI = {
    * @returns {Promise} Payment readiness status
    */
   async checkPaymentReadiness() {
-    const response = await client.get('/experts/stripe/check-payment-readiness');
+    const response = await client.get('/experts/stripe/payment-readiness');
     return response.data.data;
   },
 };

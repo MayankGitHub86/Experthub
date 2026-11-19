@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Search, 
   Sparkles, 
@@ -13,7 +13,7 @@ import {
   ArrowRight
 } from 'lucide-react';
 import ExpertHubLogo from '../common/ExpertHubLogo';
-import { mockExperts } from '../../data/mockExperts';
+import expertsAPI from '../../api/experts.js';
 
 export default function LandingPage({ 
   onLogin, 
@@ -23,13 +23,27 @@ export default function LandingPage({
   onBookExpert 
 }) {
   const [searchQuery, setSearchQuery] = useState('');
+  const [featuredExperts, setFeaturedExperts] = useState([]);
+  const [expertsLoading, setExpertsLoading] = useState(true);
+  const [expertsLoadError, setExpertsLoadError] = useState(false);
 
-  // Top 3 featured experts as shown in Screenshot 5
-  const featuredExperts = [
-    mockExperts.find(e => e.id === 'exp-sarah-chen') || mockExperts[1],
-    mockExperts.find(e => e.id === 'exp-michael-rodriguez') || mockExperts[6] || mockExperts[0],
-    mockExperts.find(e => e.id === 'exp-emma-johnson') || mockExperts[7] || mockExperts[2]
-  ];
+  useEffect(() => {
+    let cancelled = false;
+    expertsAPI.getFeatured(3)
+      .then((experts) => {
+        if (!cancelled) setFeaturedExperts(Array.isArray(experts) ? experts : []);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setFeaturedExperts([]);
+          setExpertsLoadError(true);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setExpertsLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   const handleSearchSubmit = (e) => {
     e?.preventDefault();
@@ -246,26 +260,37 @@ export default function LandingPage({
           </div>
 
           <div className="exact-featured-cards-grid">
-            {featuredExperts.map((expert) => (
+            {expertsLoading ? (
+              <p className="exact-experts-empty" role="status">Loading available experts…</p>
+            ) : featuredExperts.length === 0 ? (
+              <p className="exact-experts-empty" role={expertsLoadError ? 'alert' : undefined}>
+                {expertsLoadError ? 'Featured experts could not be loaded. Please try again later.' : 'No featured experts are available yet.'}
+              </p>
+            ) : featuredExperts.map((expert) => {
+              const name = `${expert.firstName || expert.userId?.firstName || ''} ${expert.lastName || expert.userId?.lastName || ''}`.trim() || 'Expert';
+              const rating = Number(expert.stats?.rating) || 0;
+              const reviews = Number(expert.stats?.reviewCount) || 0;
+              const tags = expert.skills?.length ? expert.skills : expert.specialties || [];
+              return (
               <div 
-                key={expert.id} 
+                key={expert._id}
                 className="exact-featured-expert-card"
                 onClick={() => onSelectExpertProfile && onSelectExpertProfile(expert)}
               >
                 <div className="exact-card-main">
                   <div className="exact-card-avatar-wrap">
-                    <img src={expert.avatar} alt={expert.name} className="exact-card-avatar" />
+                    {expert.profilePicture || expert.userId?.profilePicture ? <img src={expert.profilePicture || expert.userId.profilePicture} alt={name} className="exact-card-avatar" /> : <span className="exact-card-avatar-fallback" aria-hidden="true">{name.split(' ').map((part) => part[0]).join('').slice(0, 2)}</span>}
                   </div>
 
                   <div className="exact-card-details">
                     <div className="exact-card-name-row">
-                      <h3 className="exact-card-name">{expert.name}</h3>
-                      <CheckCircle size={15} fill="#2563EB" color="#FFFFFF" className="exact-verified-icon" />
+                      <h3 className="exact-card-name">{name}</h3>
+                      {expert.verifiedBadge && <CheckCircle size={15} fill="#2563EB" color="#FFFFFF" className="exact-verified-icon" />}
                     </div>
-                    <p className="exact-card-role">{expert.role}</p>
+                    <p className="exact-card-role">{expert.headline}</p>
 
                     <div className="exact-card-tags">
-                      {expert.skills?.slice(0, 3).map((tag, idx) => (
+                      {tags.slice(0, 3).map((tag, idx) => (
                         <span key={idx} className="exact-skill-pill">{tag}</span>
                       ))}
                     </div>
@@ -273,8 +298,8 @@ export default function LandingPage({
                     <div className="exact-card-bottom-row">
                       <div className="exact-card-rating">
                         <Star size={14} fill="#F59E0B" color="#F59E0B" />
-                        <span className="rating-num">{expert.rating}</span>
-                        <span className="reviews-num">({expert.totalReviews || expert.reviewsCount} reviews)</span>
+                        <span className="rating-num">{rating ? rating.toFixed(1) : 'New'}</span>
+                        <span className="reviews-num">({reviews} reviews)</span>
                       </div>
 
                       <div className="exact-card-rate-col">
@@ -294,7 +319,8 @@ export default function LandingPage({
                   </div>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </section>

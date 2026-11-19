@@ -1,521 +1,185 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Send, Video, Mic, Paperclip, Clock, ShieldCheck, CheckCheck, PhoneOff, Wifi, WifiOff } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { io } from 'socket.io-client';
-import { mockExperts } from '../../data/mockExperts';
+import { Send, RefreshCw, Wifi, WifiOff, MessageSquare } from 'lucide-react';
+import chatAPI from '../../api/chat.js';
 
-const SOCKET_URL = 'http://localhost:3001';
+const API_ORIGIN = new URL(import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001/api/v1').origin;
+const idOf = (value) => String(value?._id || value?.id || value || '');
+const participantUser = (participant) => participant?.userId?._id ? participant.userId : participant?.userId;
+const displayName = (user) => `${user?.firstName || ''} ${user?.lastName || ''}`.trim() || 'Conversation';
+const formatMessage = (message, currentUserId) => {
+  const senderId = idOf(message.senderId);
+  return {
+    id: idOf(message._id || message.id),
+    text: message.content || '',
+    own: senderId === idOf(currentUserId),
+    senderName: displayName(message.senderId),
+    time: message.createdAt || message.timestamp,
+  };
+};
 
-export default function ConsultationChat({ selectedExpert }) {
-  const expert = selectedExpert || mockExperts[0];
-  const roomId = `session-${expert.id}`;
+export default function ConsultationChat({ selectedExpert, initialBooking, currentUser }) {
+  const currentUserId = idOf(currentUser);
+  const bookingTargetId = useMemo(() => {
+    if (!initialBooking) return '';
+    if (currentUser?.role === 'client') return idOf(initialBooking.expertId?.userId || initialBooking.expertUserId);
+    if (currentUser?.role === 'expert') return idOf(initialBooking.clientId);
+    return '';
+  }, [initialBooking, currentUser?.role]);
+  const expertTargetId = idOf(selectedExpert?.userId?._id || selectedExpert?.userId);
+  const targetId = bookingTargetId || expertTargetId;
+  const targetKey = initialBooking?._id || initialBooking?.id || selectedExpert?._id || selectedExpert?.id || '';
 
-  const [messages, setMessages] = useState([
-    {
-      id: 1,
-      sender: 'expert',
-      text: `Hello Alex! Thanks for scheduling our architecture session. I've reviewed your project notes on scaling your data pipelines. Where would you like to start?`,
-      time: '02:30 PM'
-    },
-    {
-      id: 2,
-      sender: 'user',
-      text: `Hi Dr. Thorne, we're noticing a latency spike whenever our vector indexing batch exceeds 50k documents. Our Redis cache is bottlenecked.`,
-      time: '02:31 PM'
-    },
-    {
-      id: 3,
-      sender: 'expert',
-      text: `Got it. That typically happens when embedding generation blocks the ingestion thread pool. Have you decoupled the queue workers with an asynchronous event stream (like Kafka or AWS SQS)?`,
-      time: '02:32 PM'
-    }
-  ]);
-
-  const [inputVal, setInputVal] = useState('');
-  const [isTyping, setIsTyping] = useState(false);
-  const [isVideoActive, setIsVideoActive] = useState(false);
-  const [sessionSeconds, setSessionSeconds] = useState(2580); // 43 mins remaining
-  const [isConnected, setIsConnected] = useState(false);
-
+  const [conversations, setConversations] = useState([]);
+  const [selectedConversation, setSelectedConversation] = useState(null);
+  const [messages, setMessages] = useState([]);
+  const [messageText, setMessageText] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [messagesLoading, setMessagesLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [socketConnected, setSocketConnected] = useState(false);
+  const [sending, setSending] = useState(false);
   const socketRef = useRef(null);
   const messagesEndRef = useRef(null);
 
-  // Connect to Socket.io Microservice
-  useEffect(() => {
-    // 1. Fetch initial room history from backend API
-    fetch(`${SOCKET_URL}/api/chat/history/${roomId}`)
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.messages && data.messages.length > 0) {
-          const formatted = data.messages.map((m) => ({
-            id: m.id,
-            sender: m.sender,
-            text: m.text,
-            time: new Date(m.timestamp || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-          }));
-          setMessages(formatted);
-        }
-      })
-      .catch((err) => {
-        console.log('[Chat] Operating in local memory fallback mode', err);
-      });
-
-    // 2. Initialize Socket.io connection
-    const socket = io(SOCKET_URL, {
-      reconnectionAttempts: 5,
-      timeout: 3000
-    });
-    socketRef.current = socket;
-
-    socket.on('connect', () => {
-      setIsConnected(true);
-      socket.emit('join_room', {
-        roomId,
-        user: { name: 'Alex Rivera', role: 'client' }
-      });
-    });
-
-    socket.on('disconnect', () => {
-      setIsConnected(false);
-    });
-
-    socket.on('receive_message', (msg) => {
-      setMessages((prev) => {
-        // Prevent duplicate messages if already present
-        if (prev.some(m => m.id === msg.id)) return prev;
-        return [
-          ...prev,
-          {
-            id: msg.id,
-            sender: msg.sender,
-            text: msg.text,
-            time: new Date(msg.timestamp || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-          }
-        ];
-      });
-    });
-
-    socket.on('user_typing', () => {
-      setIsTyping(true);
-    });
-
-    socket.on('user_stop_typing', () => {
-      setIsTyping(false);
-    });
-
-    return () => {
-      socket.disconnect();
-    };
-  }, [roomId, expert.id]);
-
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, isTyping]);
-
-  // Session timer
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setSessionSeconds((prev) => (prev > 0 ? prev - 1 : 0));
-    }, 1000);
-    return () => clearInterval(timer);
+  const loadConversations = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const data = await chatAPI.getConversations();
+      setConversations(data);
+      return data;
+    } catch (err) {
+      setError(err.response?.data?.message || 'Conversations could not be loaded.');
+      setConversations([]);
+      return [];
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  const formatTimer = (seconds) => {
-    const m = Math.floor(seconds / 60);
-    const s = seconds % 60;
-    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-  };
+  useEffect(() => { loadConversations(); }, [loadConversations]);
 
-  const handleSend = (e) => {
-    e.preventDefault();
-    if (!inputVal.trim()) return;
-
-    const messagePayload = {
-      sender: 'user',
-      text: inputVal,
-      roomId
-    };
-
-    if (socketRef.current && isConnected) {
-      // Emit through real-time socket
-      socketRef.current.emit('send_message', {
-        roomId,
-        message: messagePayload
+  useEffect(() => {
+    if (!targetId || !currentUserId || targetId === currentUserId) return;
+    let cancelled = false;
+    chatAPI.createDirectConversation(targetId)
+      .then((conversation) => {
+        if (cancelled) return;
+        setSelectedConversation(conversation);
+        setConversations((existing) => [conversation, ...existing.filter((item) => idOf(item) !== idOf(conversation))]);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err.response?.data?.message || 'Could not open this conversation.');
       });
-    } else {
-      // Offline fallback
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: Date.now(),
-          sender: 'user',
-          text: inputVal,
-          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-        }
-      ]);
+    return () => { cancelled = true; };
+  }, [targetId, targetKey, currentUserId]);
+
+  useEffect(() => {
+    if (!selectedConversation?._id) {
+      setMessages([]);
+      return undefined;
     }
+    let cancelled = false;
+    const conversationId = idOf(selectedConversation);
+    setMessagesLoading(true);
+    setError('');
+    Promise.all([chatAPI.getMessages(conversationId), chatAPI.markRead(conversationId)])
+      .then(([items]) => {
+        if (!cancelled) setMessages(items.slice().reverse().map((item) => formatMessage(item, currentUserId)));
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err.response?.data?.message || 'Message history could not be loaded.');
+      })
+      .finally(() => { if (!cancelled) setMessagesLoading(false); });
+    return () => { cancelled = true; };
+  }, [selectedConversation?._id, currentUserId]);
 
-    setInputVal('');
+  useEffect(() => {
+    if (!selectedConversation?._id) return undefined;
+    const token = localStorage.getItem('accessToken');
+    if (!token) {
+      setError('Sign in again to connect to conversations.');
+      return undefined;
+    }
+    const socket = io(API_ORIGIN, { auth: { token }, reconnectionAttempts: 4, timeout: 5000 });
+    socketRef.current = socket;
+    const conversationId = idOf(selectedConversation);
+    socket.on('connect', () => {
+      setSocketConnected(true);
+      socket.emit('join_conversation', { conversationId });
+    });
+    socket.on('disconnect', () => setSocketConnected(false));
+    socket.on('connect_error', () => {
+      setSocketConnected(false);
+      setError('Live messaging is unavailable. Messages are not queued on this device.');
+    });
+    socket.on('error', (payload) => setError(payload?.message || 'The message could not be sent.'));
+    socket.on('receive_message', (message) => {
+      const next = formatMessage(message, currentUserId);
+      setMessages((existing) => existing.some((item) => item.id === next.id) ? existing : [...existing, next]);
+    });
+    socket.on('user_typing', () => {});
+    return () => {
+      socket.disconnect();
+      socketRef.current = null;
+      setSocketConnected(false);
+    };
+  }, [selectedConversation?._id, currentUserId]);
 
-    // Expert intelligent auto-reply simulation if other peer is not active
-    setIsTyping(true);
-    setTimeout(() => {
-      setIsTyping(false);
-      const responses = [
-        `That makes total sense. I recommend partitioning the indexing shards across 3 replicas and configuring HNSW m=16 with efConstruction=200 for optimal read-write balance.`,
-        `Let me share a diagram from a recent implementation that solved this exact concurrency hurdle with zero downtime.`,
-        `Good point! Also ensure your worker nodes have dedicated memory limits so the garbage collector doesn't trigger OOM pauses during peak spikes.`
-      ];
-      const randomResponse = responses[Math.floor(Math.random() * responses.length)];
+  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
-      if (socketRef.current && isConnected) {
-        socketRef.current.emit('send_message', {
-          roomId,
-          message: {
-            sender: 'expert',
-            text: randomResponse,
-            roomId
-          }
-        });
-      } else {
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: Date.now() + 1,
-            sender: 'expert',
-            text: randomResponse,
-            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-          }
-        ]);
-      }
-    }, 1400);
+  const otherParticipant = (conversation) => conversation?.participants
+    ?.map(participantUser)
+    .find((user) => idOf(user) !== currentUserId);
+
+  const handleSend = (event) => {
+    event.preventDefault();
+    const content = messageText.trim();
+    const conversationId = idOf(selectedConversation);
+    if (!content || !conversationId || !socketConnected || !socketRef.current) return;
+    setSending(true);
+    setError('');
+    socketRef.current.emit('send_message', { conversationId, content, type: 'text' });
+    setMessageText('');
+    window.setTimeout(() => setSending(false), 300);
   };
 
   return (
-    <div style={{
-      display: 'grid',
-      gridTemplateColumns: isVideoActive ? '1fr 1fr' : '1fr',
-      gap: '20px',
-      height: 'calc(100vh - 150px)',
-      minHeight: '520px'
-    }}>
-      {/* Optional Video Call Simulator */}
-      {isVideoActive && (
-        <div style={{
-          backgroundColor: '#0a0d17',
-          borderRadius: '16px',
-          border: '1px solid var(--border-medium)',
-          display: 'flex',
-          flexDirection: 'column',
-          position: 'relative',
-          overflow: 'hidden'
-        }}>
-          {/* Main Video View (Expert) */}
-          <div style={{ flexGrow: 1, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <img 
-              src={expert.avatar} 
-              alt={expert.name} 
-              style={{ width: '100%', height: '100%', objectFit: 'cover', filter: 'brightness(0.85)' }}
-            />
-            <div style={{
-              position: 'absolute',
-              bottom: '16px',
-              left: '16px',
-              backgroundColor: 'rgba(0,0,0,0.6)',
-              backdropFilter: 'blur(6px)',
-              padding: '6px 12px',
-              borderRadius: '8px',
-              fontSize: '12px',
-              color: '#fff',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px'
-            }}>
-              <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#10b981' }} />
-              <span>{expert.name} (Live Audio/Video)</span>
-            </div>
-
-            {/* PIP Client Thumbnail */}
-            <div style={{
-              position: 'absolute',
-              top: '16px',
-              right: '16px',
-              width: '120px',
-              height: '80px',
-              borderRadius: '10px',
-              overflow: 'hidden',
-              border: '2px solid rgba(255,255,255,0.2)',
-              backgroundColor: '#1f2438'
-            }}>
-              <img 
-                src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=120&auto=format&fit=crop&q=80" 
-                alt="You" 
-                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-              />
-              <div style={{ position: 'absolute', bottom: '2px', left: '4px', fontSize: '9px', color: '#fff' }}>
-                You
-              </div>
-            </div>
-          </div>
-
-          {/* Video Controls Bar */}
-          <div style={{
-            padding: '14px',
-            backgroundColor: '#121626',
-            borderTop: '1px solid var(--border-subtle)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '12px'
-          }}>
-            <button style={{ width: '40px', height: '40px', borderRadius: '50%', backgroundColor: 'rgba(255,255,255,0.1)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Mic size={18} />
-            </button>
-            <button style={{ width: '40px', height: '40px', borderRadius: '50%', backgroundColor: 'rgba(255,255,255,0.1)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Video size={18} />
-            </button>
-            <button 
-              onClick={() => setIsVideoActive(false)}
-              style={{ width: '40px', height: '40px', borderRadius: '50%', backgroundColor: '#ef4444', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-            >
-              <PhoneOff size={18} />
-            </button>
-          </div>
+    <section style={{ display: 'grid', gridTemplateColumns: 'minmax(220px, 0.8fr) minmax(0, 2fr)', gap: '16px', minHeight: 'min(680px, calc(100vh - 170px))' }}>
+      <aside className="card-container" style={{ padding: '14px', overflowY: 'auto' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+          <h2 style={{ fontSize: '16px', color: 'var(--text-primary)' }}>Messages</h2>
+          <button type="button" onClick={loadConversations} aria-label="Refresh conversations" disabled={loading}><RefreshCw size={15} className={loading ? 'spinner' : ''} /></button>
         </div>
-      )}
+        {loading ? <p role="status" style={{ color: 'var(--text-muted)' }}>Loading conversations…</p> : conversations.map((conversation) => {
+          const partner = otherParticipant(conversation);
+          const active = idOf(selectedConversation) === idOf(conversation);
+          return <button key={idOf(conversation)} type="button" onClick={() => setSelectedConversation(conversation)} style={{ display: 'block', width: '100%', padding: '10px', marginBottom: '6px', textAlign: 'left', borderRadius: '8px', background: active ? 'var(--surface-input)' : 'transparent', color: 'var(--text-primary)', border: `1px solid ${active ? 'var(--border-subtle)' : 'transparent'}` }}>
+            <div style={{ fontWeight: 650 }}>{displayName(partner)}</div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{conversation.lastMessage?.content || conversation.subject || 'No messages yet'}</div>
+          </button>;
+        })}
+        {!loading && conversations.length === 0 && <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>No conversations yet. Open a profile or booking to start one.</p>}
+      </aside>
 
-      {/* Real-time Chat Container */}
-      <div style={{
-        backgroundColor: 'var(--surface-card)',
-        border: '1px solid var(--border-subtle)',
-        borderRadius: '16px',
-        display: 'flex',
-        flexDirection: 'column',
-        boxShadow: 'var(--shadow-card)',
-        overflow: 'hidden'
-      }}>
-        {/* Chat Room Header */}
-        <div style={{
-          padding: '16px 20px',
-          borderBottom: '1px solid var(--border-subtle)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          backgroundColor: 'var(--surface-input)'
-        }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div style={{ position: 'relative' }}>
-              <img 
-                src={expert.avatar} 
-                alt={expert.name} 
-                style={{ width: '40px', height: '40px', borderRadius: '50%', objectFit: 'cover' }}
-              />
-              <span style={{
-                position: 'absolute',
-                bottom: 0,
-                right: 0,
-                width: '10px',
-                height: '10px',
-                borderRadius: '50%',
-                backgroundColor: 'var(--accent-green)',
-                border: '2px solid var(--surface-input)'
-              }} />
-            </div>
-
-            <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span style={{ fontSize: '14px', fontWeight: '700', color: 'var(--text-primary)' }}>{expert.name}</span>
-                <span style={{ fontSize: '10px', backgroundColor: 'rgba(16, 185, 129, 0.15)', color: '#34d399', padding: '1px 6px', borderRadius: '4px', fontWeight: '600' }}>
-                  ACTIVE SESSION
-                </span>
-                {isConnected ? (
-                  <span style={{ display: 'flex', alignItems: 'center', gap: '3px', fontSize: '10px', color: '#34d399' }} title="Connected to Socket.io Microservice (Port 3001)">
-                    <Wifi size={11} />
-                    <span>Socket Live</span>
-                  </span>
-                ) : (
-                  <span style={{ display: 'flex', alignItems: 'center', gap: '3px', fontSize: '10px', color: 'var(--text-muted)' }} title="Offline / Local Sync">
-                    <WifiOff size={11} />
-                    <span>Sync</span>
-                  </span>
-                )}
-              </div>
-              <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                {expert.role}
-              </div>
-            </div>
+      <div className="card-container" style={{ minWidth: 0, display: 'flex', flexDirection: 'column', padding: 0, overflow: 'hidden' }}>
+        {selectedConversation ? <>
+          <header style={{ padding: '14px 18px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px' }}>
+            <div><h2 style={{ fontSize: '15px', color: 'var(--text-primary)' }}>{displayName(otherParticipant(selectedConversation))}</h2><p style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{selectedConversation.bookingId ? `Booking ${idOf(selectedConversation.bookingId)}` : 'Direct conversation'}</p></div>
+            <span style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '11px', color: socketConnected ? '#10b981' : 'var(--text-muted)' }}>{socketConnected ? <Wifi size={13} /> : <WifiOff size={13} />}{socketConnected ? 'Connected' : 'Disconnected'}</span>
+          </header>
+          {error && <p role="alert" style={{ margin: '10px 16px', color: '#ef4444', fontSize: '12px' }}>{error}</p>}
+          <div style={{ flex: 1, minHeight: '260px', overflowY: 'auto', padding: '18px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {messagesLoading ? <p role="status">Loading message history…</p> : messages.length === 0 ? <p style={{ margin: 'auto', color: 'var(--text-muted)' }}>No messages in this conversation yet.</p> : messages.map((message) => <div key={message.id} style={{ alignSelf: message.own ? 'flex-end' : 'flex-start', maxWidth: '78%', padding: '10px 13px', borderRadius: '12px', background: message.own ? 'var(--accent-purple)' : 'var(--surface-input)', color: message.own ? '#fff' : 'var(--text-primary)', overflowWrap: 'anywhere' }}><div style={{ fontSize: '13px', lineHeight: 1.5 }}>{message.text}</div><time style={{ display: 'block', marginTop: '4px', fontSize: '10px', opacity: 0.7 }}>{message.time ? new Date(message.time).toLocaleString() : ''}</time></div>)}
+            <div ref={messagesEndRef} />
           </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-            {/* Session Countdown Timer */}
-            <div style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-              padding: '6px 12px',
-              borderRadius: '8px',
-              backgroundColor: 'rgba(139, 92, 246, 0.15)',
-              border: '1px solid rgba(139, 92, 246, 0.3)',
-              color: 'var(--accent-purple-light)',
-              fontSize: '12px',
-              fontWeight: '600'
-            }}>
-              <Clock size={13} />
-              <span>{formatTimer(sessionSeconds)}</span>
-            </div>
-
-            {/* Launch Video Call */}
-            {!isVideoActive && (
-              <button 
-                onClick={() => setIsVideoActive(true)}
-                className="btn-pro" 
-                style={{ width: 'auto', padding: '8px 14px', fontSize: '12px' }}
-              >
-                <Video size={14} />
-                <span>Join Video</span>
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Message Feed */}
-        <div style={{
-          flexGrow: 1,
-          padding: '20px',
-          overflowY: 'auto',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '14px'
-        }}>
-          <div style={{ textAlign: 'center', margin: '8px 0' }}>
-            <span style={{
-              fontSize: '11px',
-              color: 'var(--text-muted)',
-              backgroundColor: 'var(--surface-input)',
-              padding: '4px 12px',
-              borderRadius: '12px'
-            }}>
-              Room: <code>{roomId}</code> • End-to-end Socket encrypted
-            </span>
-          </div>
-
-          {messages.map((msg) => {
-            const isUser = msg.sender === 'user';
-            return (
-              <div
-                key={msg.id}
-                style={{
-                  display: 'flex',
-                  justifyContent: isUser ? 'flex-end' : 'flex-start',
-                  alignItems: 'flex-end',
-                  gap: '8px'
-                }}
-              >
-                {!isUser && (
-                  <img 
-                    src={expert.avatar} 
-                    alt={expert.name} 
-                    style={{ width: '28px', height: '28px', borderRadius: '50%', objectFit: 'cover' }}
-                  />
-                )}
-
-                <div
-                  style={{
-                    maxWidth: '75%',
-                    padding: '12px 16px',
-                    borderRadius: isUser ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
-                    backgroundColor: isUser ? '#7c3aed' : 'var(--surface-input)',
-                    color: isUser ? '#ffffff' : 'var(--text-primary)',
-                    border: isUser ? 'none' : '1px solid var(--border-subtle)',
-                    fontSize: '13px',
-                    lineHeight: '1.5',
-                    boxShadow: isUser ? '0 4px 12px rgba(124, 58, 237, 0.3)' : 'none'
-                  }}
-                >
-                  <div>{msg.text}</div>
-                  <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'flex-end',
-                    gap: '4px',
-                    fontSize: '10px',
-                    color: isUser ? 'rgba(255,255,255,0.7)' : 'var(--text-muted)',
-                    marginTop: '4px'
-                  }}>
-                    <span>{msg.time}</span>
-                    {isUser && <CheckCheck size={12} />}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-
-          {isTyping && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <img 
-                src={expert.avatar} 
-                alt={expert.name} 
-                style={{ width: '28px', height: '28px', borderRadius: '50%', objectFit: 'cover' }}
-              />
-              <div style={{
-                padding: '8px 14px',
-                borderRadius: '16px',
-                backgroundColor: 'var(--surface-input)',
-                color: 'var(--text-muted)',
-                fontSize: '12px',
-                fontStyle: 'italic'
-              }}>
-                {expert.name} is typing...
-              </div>
-            </div>
-          )}
-          <div ref={messagesEndRef} />
-        </div>
-
-        {/* Chat Input Bar */}
-        <form 
-          onSubmit={handleSend}
-          style={{
-            padding: '14px 20px',
-            borderTop: '1px solid var(--border-subtle)',
-            backgroundColor: 'var(--surface-input)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '10px'
-          }}
-        >
-          <button 
-            type="button" 
-            style={{ color: 'var(--text-muted)' }}
-            title="Attach Architecture Diagram or Code File"
-          >
-            <Paperclip size={18} />
-          </button>
-
-          <input
-            type="text"
-            placeholder={`Message ${expert.name} over Socket.io...`}
-            value={inputVal}
-            onChange={(e) => setInputVal(e.target.value)}
-            style={{
-              flexGrow: 1,
-              backgroundColor: 'var(--surface-card)',
-              border: '1px solid var(--border-subtle)',
-              borderRadius: '10px',
-              padding: '10px 14px',
-              fontSize: '13px',
-              color: 'var(--text-primary)'
-            }}
-          />
-
-          <button
-            type="submit"
-            className="btn-pro"
-            style={{ width: 'auto', padding: '10px 16px', borderRadius: '10px' }}
-          >
-            <Send size={15} />
-          </button>
-        </form>
+          <form onSubmit={handleSend} style={{ padding: '12px', borderTop: '1px solid var(--border-subtle)', display: 'flex', gap: '8px' }}>
+            <input aria-label="Message" value={messageText} onChange={(event) => setMessageText(event.target.value)} maxLength={5000} placeholder="Write a message…" style={{ flex: 1, minWidth: 0, padding: '10px', borderRadius: '8px', background: 'var(--surface-input)', color: 'var(--text-primary)', border: '1px solid var(--border-subtle)' }} />
+            <button type="submit" disabled={!socketConnected || !messageText.trim() || sending} aria-label="Send message" className="btn-pro" style={{ width: 'auto', padding: '10px 14px' }}><Send size={15} /></button>
+          </form>
+        </> : <div style={{ margin: 'auto', textAlign: 'center', color: 'var(--text-muted)' }}><MessageSquare size={28} style={{ margin: '0 auto 10px' }} /><p>Select a conversation to view persisted messages.</p></div>}
       </div>
-    </div>
+    </section>
   );
 }

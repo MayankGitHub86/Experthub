@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import { Sparkles, ArrowRight, Bot, Star, ShieldCheck, CheckCircle2, RefreshCw } from 'lucide-react';
-import { mockExperts } from '../../data/mockExperts';
+import expertsAPI from '../../api/experts.js';
 
 export default function AIMatchingAgent({ onBookExpert, onStartChat }) {
   const [promptInput, setPromptInput] = useState('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [matchedResults, setMatchedResults] = useState(null);
+  const [matchError, setMatchError] = useState('');
 
   const samplePrompts = [
     "We need an architect to review our multi-agent LLM pipeline and vector search latency.",
@@ -14,83 +15,31 @@ export default function AIMatchingAgent({ onBookExpert, onStartChat }) {
     "Looking for a security auditor for an Ethereum smart contract launch next week."
   ];
 
-  const handleMatch = (text) => {
+  const handleMatch = async (text) => {
     const query = text || promptInput;
     if (!query.trim()) return;
 
     setIsAnalyzing(true);
     setMatchedResults(null);
-
-    fetch('http://localhost:3001/api/ai/match', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt: query })
-    })
-      .then((res) => res.json())
-      .then((data) => {
-        setIsAnalyzing(false);
-        if (data.topMatches && data.topMatches.length > 0) {
-          // Rehydrate with full mock profile objects
-          const enriched = data.topMatches.map((m) => {
-            const fullExpert = mockExperts.find(e => e.id === m.expertId) || mockExperts[0];
-            return {
-              expert: fullExpert,
-              matchScore: m.matchScore,
-              reasons: m.reasons
-            };
-          });
-          setMatchedResults(enriched);
-        }
-      })
-      .catch((err) => {
-        console.log('[AI Matcher] Backend fetch failed, falling back to local heuristic:', err);
-        // Fallback to local heuristic
-        setTimeout(() => {
-          setIsAnalyzing(false);
-          const lower = query.toLowerCase();
-          const ranked = mockExperts.map((exp) => {
-            let score = 70;
-            let reasons = [];
-            exp.tags.forEach(t => {
-              if (lower.includes(t.toLowerCase())) {
-                score += 8;
-                reasons.push(`Direct skill match: "${t}"`);
-              }
-            });
-            if (lower.includes('ai') || lower.includes('llm') || lower.includes('agent') || lower.includes('vector')) {
-              if (exp.category === 'AI & Machine Learning') {
-                score += 18;
-                reasons.push("Specialized deep-learning background matches query domain");
-              }
-            }
-            if (lower.includes('design') || lower.includes('figma') || lower.includes('token') || lower.includes('ux')) {
-              if (exp.category === 'Design & UX') {
-                score += 18;
-                reasons.push("Extensive enterprise design systems experience");
-              }
-            }
-            if (lower.includes('cloud') || lower.includes('kubernetes') || lower.includes('aws') || lower.includes('cost')) {
-              if (exp.category === 'Cloud & DevOps') {
-                score += 18;
-                reasons.push("Proven track record in infrastructure and cost optimization");
-              }
-            }
-            if (lower.includes('contract') || lower.includes('audit') || lower.includes('security') || lower.includes('crypto')) {
-              if (exp.category === 'Security & Blockchain') {
-                score += 18;
-                reasons.push("Specialized formal verification & auditing background");
-              }
-            }
-            const clampedScore = Math.min(Math.max(score, 72), 99);
-            return {
-              expert: exp,
-              matchScore: clampedScore,
-              reasons: reasons.length ? reasons : ["General senior advisory fit based on platform track record"]
-            };
-          }).sort((a, b) => b.matchScore - a.matchScore);
-          setMatchedResults(ranked.slice(0, 3));
-        }, 500);
-      });
+    setMatchError('');
+    try {
+      const experts = await expertsAPI.getAll();
+      const terms = [...new Set(query.toLowerCase().match(/[a-z0-9+#.-]{3,}/g) || [])];
+      const ranked = experts.map((expert) => {
+        const profile = [expert.headline, expert.bio, expert.category, ...(expert.skills || []), ...(expert.specialties || [])]
+          .filter(Boolean).join(' ').toLowerCase();
+        const matchedTerms = terms.filter((term) => profile.includes(term));
+        return { expert, matchedTerms, matchCount: matchedTerms.length };
+      }).filter((result) => result.matchCount > 0)
+        .sort((a, b) => b.matchCount - a.matchCount)
+        .slice(0, 3);
+      setMatchedResults(ranked);
+    } catch (err) {
+      setMatchedResults([]);
+      setMatchError(err.response?.data?.message || 'Expert search is unavailable right now.');
+    } finally {
+      setIsAnalyzing(false);
+    }
   };
 
   return (
@@ -124,7 +73,7 @@ export default function AIMatchingAgent({ onBookExpert, onStartChat }) {
               ExpertMatcher AI Assistant
             </h2>
             <p style={{ fontSize: '13.5px', marginTop: '4px', margin: 0, lineHeight: 1.5 }}>
-              Powered by OpenAI embeddings. Describe your problem in plain English and let AI match you with the exact right vetted specialist.
+              Describe your needs and compare them with real expert profiles, skills, and specialties.
             </p>
           </div>
         </div>
@@ -209,14 +158,14 @@ export default function AIMatchingAgent({ onBookExpert, onStartChat }) {
               Top AI Matches ({matchedResults.length})
             </h3>
             <span style={{ fontSize: '12px', color: 'var(--accent-green)', fontWeight: '600' }}>
-              ✓ High confidence match found
+              Ordered by the number of matching profile terms
             </span>
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            {matchedResults.map(({ expert, matchScore, reasons }, idx) => (
+            {matchedResults.map(({ expert, matchedTerms }, idx) => (
               <div
-                key={expert.id}
+                key={expert._id}
                 style={{
                   backgroundColor: 'var(--surface-card)',
                   border: idx === 0 ? '1.5px solid var(--accent-purple)' : '1px solid var(--border-subtle)',
@@ -227,15 +176,11 @@ export default function AIMatchingAgent({ onBookExpert, onStartChat }) {
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
                   <div style={{ display: 'flex', gap: '14px' }}>
-                    <img 
-                      src={expert.avatar} 
-                      alt={expert.name} 
-                      style={{ width: '56px', height: '56px', borderRadius: '12px', objectFit: 'cover' }}
-                    />
+                    {expert.profilePicture ? <img src={expert.profilePicture} alt="" style={{ width: '56px', height: '56px', borderRadius: '12px', objectFit: 'cover' }} /> : <div aria-hidden="true" style={{ width: '56px', height: '56px', borderRadius: '12px', display: 'grid', placeItems: 'center', background: 'var(--surface-input)', color: 'var(--text-primary)', fontWeight: 700 }}>{`${expert.firstName?.[0] || ''}${expert.lastName?.[0] || ''}`}</div>}
                     <div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <h4 style={{ fontSize: '16px', fontWeight: '700', color: 'var(--text-primary)' }}>
-                          {expert.name}
+                          {`${expert.firstName || ''} ${expert.lastName || ''}`.trim()}
                         </h4>
                         <span style={{
                           fontSize: '11px',
@@ -245,25 +190,25 @@ export default function AIMatchingAgent({ onBookExpert, onStartChat }) {
                           background: idx === 0 ? 'rgba(16, 185, 129, 0.2)' : 'rgba(139, 92, 246, 0.2)',
                           color: idx === 0 ? '#34d399' : '#c084fc'
                         }}>
-                          {matchScore}% Match
+                          {matchedTerms.length} matching terms
                         </span>
                       </div>
                       <div style={{ fontSize: '13px', color: 'var(--accent-purple-light)', fontWeight: '500' }}>
-                        {expert.role}
+                        {expert.headline}
                       </div>
                       <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                        {expert.company}
+                        {expert.company || expert.category}
                       </div>
                     </div>
                   </div>
 
                   <div style={{ textAlign: 'right' }}>
                     <div style={{ fontSize: '16px', fontWeight: '700', color: 'var(--text-primary)' }}>
-                      ${expert.hourlyRate}/hr
+                      {Number.isFinite(Number(expert.hourlyRate)) ? `$${expert.hourlyRate}/hr` : 'Rate not listed'}
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '3px', color: '#fbbf24', fontSize: '12px', justifyContent: 'flex-end' }}>
                       <Star size={13} fill="#fbbf24" stroke="#fbbf24" />
-                      <span>{expert.rating}</span>
+                      <span>{Number(expert.stats?.rating) > 0 ? `${Number(expert.stats.rating).toFixed(1)} · ${expert.stats.reviewCount || 0} reviews` : 'No reviews yet'}</span>
                     </div>
                   </div>
                 </div>
@@ -279,7 +224,7 @@ export default function AIMatchingAgent({ onBookExpert, onStartChat }) {
                   borderLeft: '3px solid var(--accent-purple)'
                 }}>
                   <strong style={{ color: 'var(--text-primary)' }}>Why this match: </strong>
-                  {reasons.join('; ')}
+                  {matchedTerms.join(', ')}
                 </div>
 
                 {/* Actions */}
@@ -296,7 +241,7 @@ export default function AIMatchingAgent({ onBookExpert, onStartChat }) {
                       fontWeight: '500'
                     }}
                   >
-                    Quick Chat Inquiry
+                    Message Expert
                   </button>
                   <button
                     onClick={() => onBookExpert(expert)}
@@ -310,6 +255,10 @@ export default function AIMatchingAgent({ onBookExpert, onStartChat }) {
               </div>
             ))}
           </div>
+          {matchedResults.length === 0 && !matchError && (
+            <p style={{ color: 'var(--text-muted)' }}>No expert profiles matched those terms. Try different skills or topics.</p>
+          )}
+          {matchError && <p role="alert" style={{ color: '#ef4444' }}>{matchError}</p>}
         </div>
       )}
     </div>

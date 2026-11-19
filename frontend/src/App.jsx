@@ -6,17 +6,6 @@ import SearchModal from './components/common/SearchModal';
 import UpgradeModal from './components/common/UpgradeModal';
 import NotificationsModal from './components/common/NotificationsModal';
 
-// Dark Mode Nexora components
-import MetricCard from './components/dashboard/MetricCard';
-import RevenueChart from './components/dashboard/RevenueChart';
-import SalesChannelChart from './components/dashboard/SalesChannelChart';
-import TopProductsTable from './components/dashboard/TopProductsTable';
-import RecentOrdersTable from './components/dashboard/RecentOrdersTable';
-import CustomerGrowthChart from './components/dashboard/CustomerGrowthChart';
-
-// Light Mode MetricFlow component
-import LightModeDashboard from './components/dashboard/LightModeDashboard';
-
 // Marketplace & Booking components
 import ExpertGrid from './components/marketplace/ExpertGrid';
 import ExpertProfileModal from './components/marketplace/ExpertProfileModal';
@@ -33,7 +22,6 @@ import OrdersView from './components/orders/OrdersView';
 import SalesView from './components/sales/SalesView';
 import CustomersView from './components/customers/CustomersView';
 import ProductsView from './components/products/ProductsView';
-import AnalyticsView from './components/analytics/AnalyticsView';
 import SettingsView from './components/settings/SettingsView';
 
 // Portals
@@ -44,52 +32,21 @@ import ClientPortal from './components/portals/ClientPortal';
 import LandingPage from './components/landing/LandingPage';
 import AuthModal from './components/auth/AuthModal';
 
-import { dashboardMetrics } from './data/mockDashboardData';
-import { mockExperts } from './data/mockExperts';
+import paymentsAPI from './api/payments.js';
+import authAPI from './api/auth.js';
 
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [theme, setTheme] = useState('light'); // default to light to showcase the new MetricFlow white mode or toggle
-  const [currentUser, setCurrentUser] = useState(() => {
-    try {
-      const stored = localStorage.getItem('user');
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        return {
-          name: parsed.firstName ? `${parsed.firstName} ${parsed.lastName || ''}`.trim() : parsed.email,
-          email: parsed.email,
-          role: parsed.role || 'admin',
-          avatar: parsed.profilePicture || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80',
-          ...parsed
-        };
-      }
-    } catch {}
-    return {
-      name: 'Alex Morgan',
-      email: 'admin@experthub.com',
-      role: 'admin',
-      avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80'
-    };
-  });
-  const [userRole, setUserRole] = useState(() => {
-    try {
-      const stored = localStorage.getItem('user');
-      if (stored) return JSON.parse(stored).role || 'admin';
-    } catch {}
-    return 'admin';
-  });
-  const [isAuthenticated, setIsAuthenticated] = useState(() => {
-    if (typeof window !== 'undefined') {
-      if (localStorage.getItem('accessToken')) return true;
-      if (window.location.hash === '#app' || window.location.hash === '#dashboard') {
-        return true;
-      }
-    }
-    return false;
-  });
+  const [currentUser, setCurrentUser] = useState(null);
+  const [userRole, setUserRole] = useState(null);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [authReady, setAuthReady] = useState(false);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [authMode, setAuthMode] = useState('login');
+  const [postAuthDestination, setPostAuthDestination] = useState(null);
+  const [marketplaceQuery, setMarketplaceQuery] = useState('');
 
   // Modal States
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -100,45 +57,66 @@ export default function App() {
   const [selectedExpertForProfile, setSelectedExpertForProfile] = useState(null);
   const [bookingTarget, setBookingTarget] = useState(null);
   const [checkoutTarget, setCheckoutTarget] = useState(null);
-  const [activeChatExpert, setActiveChatExpert] = useState(mockExperts[0]);
+  const [activeChatExpert, setActiveChatExpert] = useState(null);
+  const [activeChatBooking, setActiveChatBooking] = useState(null);
+  const [adminPaymentSummary, setAdminPaymentSummary] = useState({ records: [], total: 0, loading: true, error: '' });
   // dateRange is the selected preset name (string), not date objects
   const [dateRange, setDateRange] = useState('Last 30 Days');
 
-  const [notifications, setNotifications] = useState([
-    {
-      id: 1,
-      type: 'payment',
-      title: 'Stripe Payout Settled',
-      message: '$3,450.00 routed to Dr. Aris Thorne (acct_1N9280Xy).',
-      time: '12m ago'
-    },
-    {
-      id: 2,
-      type: 'booking',
-      title: 'New Consultation Booked',
-      message: 'Alex Rivera scheduled 45-min Deep Dive with Dr. Aris Thorne.',
-      time: '34m ago'
-    },
-    {
-      id: 3,
-      type: 'ai',
-      title: 'AI Match Generated',
-      message: 'New client inquiry matched with 98% confidence to Sophia Chen.',
-      time: '2h ago'
-    }
-  ]);
+  useEffect(() => {
+    let cancelled = false;
+    const hydrateSession = async () => {
+      localStorage.removeItem('refreshToken');
+      localStorage.removeItem('user');
+      try {
+        let token = localStorage.getItem('accessToken');
+        if (!token) {
+          const refreshed = await authAPI.refreshToken();
+          token = refreshed.accessToken;
+          if (token) localStorage.setItem('accessToken', token);
+        }
+        if (token) {
+          const user = await authAPI.getCurrentUser();
+          if (!cancelled && user) {
+            setCurrentUser(user);
+            setUserRole(user.role);
+            setIsAuthenticated(true);
+          }
+        }
+      } catch {
+        localStorage.removeItem('accessToken');
+        localStorage.removeItem('user');
+      } finally {
+        if (!cancelled) setAuthReady(true);
+      }
+    };
+    hydrateSession();
+    return () => { cancelled = true; };
+  }, []);
+
+  const [notifications, setNotifications] = useState([]);
 
   // Sync theme attribute on document root
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
   }, [theme]);
 
-  // Debug authentication state changes
   useEffect(() => {
-    console.log('[App.jsx] isAuthenticated changed:', isAuthenticated, 'activeTab:', activeTab);
-  }, [isAuthenticated, activeTab]);
+    if (!isAuthenticated || userRole !== 'admin' || activeTab !== 'dashboard') return undefined;
+    let cancelled = false;
+    setAdminPaymentSummary((current) => ({ ...current, loading: true, error: '' }));
+    paymentsAPI.listPayments({ page: 1, limit: 10, sortBy: 'createdAt', sortOrder: 'desc' })
+      .then((result) => {
+        if (!cancelled) setAdminPaymentSummary({ records: result?.payments || [], total: result?.pagination?.total || 0, loading: false, error: '' });
+      })
+      .catch((error) => {
+        if (!cancelled) setAdminPaymentSummary({ records: [], total: 0, loading: false, error: error.response?.data?.message || 'Payment activity could not be loaded.' });
+      });
+    return () => { cancelled = true; };
+  }, [isAuthenticated, userRole, activeTab]);
 
   const handleStartBooking = (expert, pkg = null) => {
+    if (!expert) return;
     setSelectedExpertForProfile(null);
     setBookingTarget({ expert, selectedPackage: pkg });
   };
@@ -150,16 +128,8 @@ export default function App() {
 
   // Alias used by BookingModal's onProceedToPayment prop
   const handleProceedToPayment = (bookingData) => {
-    console.log('🟢 App.jsx handleProceedToPayment called with:', bookingData);
     setBookingTarget(null);
-    console.log('  ✅ Setting checkoutTarget:', bookingData);
     setCheckoutTarget(bookingData);
-  };
-
-  const handlePaymentComplete = () => {
-    setCheckoutTarget(null);
-    setActiveTab('orders');
-    // In real app, we'd add to orders list here
   };
 
   const handleBookingSuccess = (newOrder) => {
@@ -168,52 +138,36 @@ export default function App() {
       {
         id: Date.now(),
         type: 'booking',
-        title: 'Booking Confirmed!',
-        message: `${newOrder.clientName} confirmed session for $${newOrder.amount}.00`,
+        title: 'Payment Confirmed',
+        message: 'The server confirmed payment for your booking.',
         time: 'Just now'
       },
       ...prev
     ]);
-    setActiveChatExpert(mockExperts.find(e => e.name === newOrder.expertName) || mockExperts[0]);
-    setActiveTab('chat');
+    setActiveChatBooking(null);
+    setActiveTab('orders');
   };
 
   const handleLoginSuccess = (user) => {
-    console.log('[App.jsx] handleLoginSuccess called with:', user);
     setCurrentUser(user);
     setUserRole(user.role);
     setIsAuthenticated(true);
-    console.log('[App.jsx] isAuthenticated set to true, activeTab being set to dashboard');
     setIsAuthOpen(false);
-    setActiveTab('dashboard');
+    setActiveTab(postAuthDestination?.tab === 'customers' && user.role === 'client' ? 'customers' : 'dashboard');
+    setPostAuthDestination(null);
   };
 
   const handleLogout = () => {
-    try {
-      localStorage.removeItem('accessToken');
-      localStorage.removeItem('refreshToken');
-      localStorage.removeItem('user');
-    } catch {}
+    authAPI.logout();
     setIsAuthenticated(false);
     setCurrentUser(null);
+    setUserRole(null);
     setActiveTab('dashboard');
   };
 
-  const handleExportData = () => {
-    const csvContent = "data:text/csv;charset=utf-8," + 
-      "Channel,Percentage,Amount,Growth\n" +
-      "Online Store,40%,$99360,12.4%\n" +
-      "Marketplace,30%,$74520,8.7%\n" +
-      "Retail,20%,$49680,15.3%\n" +
-      "Wholesale,10%,$24840,6.1%\n";
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `ExpertHub_Export_${Date.now()}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
+  if (!authReady) {
+    return <div className="landing-root" aria-busy="true" />;
+  }
 
   if (!isAuthenticated) {
     return (
@@ -227,20 +181,21 @@ export default function App() {
             setAuthMode('signup');
             setIsAuthOpen(true);
           }}
-          onExploreApp={() => {
-            setIsAuthenticated(true);
-          }}
-          onNavigateToExperts={() => {
-            setIsAuthenticated(true);
-            setActiveTab('customers');
+          onNavigateToExperts={(query = '') => {
+            setPostAuthDestination({ tab: 'customers', query });
+            setMarketplaceQuery(query);
+            setAuthMode('login');
+            setIsAuthOpen(true);
           }}
           onSelectExpertProfile={(expert) => {
-            setIsAuthenticated(true);
             setSelectedExpertForProfile(expert);
+            setAuthMode('login');
+            setIsAuthOpen(true);
           }}
           onBookExpert={(expert) => {
-            setIsAuthenticated(true);
             handleStartBooking(expert);
+            setAuthMode('login');
+            setIsAuthOpen(true);
           }}
         />
 
@@ -278,13 +233,11 @@ export default function App() {
           theme={theme}
           onOpenSearch={() => setIsSearchOpen(true)}
           userRole={userRole}
-          setUserRole={setUserRole}
           dateRange={dateRange}
           setDateRange={setDateRange}
           notifications={notifications}
           onOpenNotifications={() => setIsNotificationsOpen(true)}
           onOpenChat={() => setActiveTab('chat')}
-          onExport={handleExportData}
           currentUser={currentUser}
           onLogout={handleLogout}
           onViewLanding={() => setIsAuthenticated(false)}
@@ -298,8 +251,8 @@ export default function App() {
               <ExpertPortal
                 theme={theme}
                 onJoinSession={(booking) => {
-                  const matched = mockExperts.find(e => e.id === booking.expertId) || mockExperts[0];
-                  setActiveChatExpert(matched);
+                  setActiveChatBooking(booking);
+                  setActiveChatExpert(null);
                   setActiveTab('chat');
                 }}
               />
@@ -308,39 +261,24 @@ export default function App() {
                 theme={theme}
                 currentUser={currentUser}
                 onBook={handleStartBooking}
+                onBrowseExperts={() => setActiveTab('customers')}
                 onViewProfile={(expert) => setSelectedExpertForProfile(expert)}
                 onJoinSession={(booking) => {
-                  const matched = mockExperts.find(e => e.id === booking.expertId) || mockExperts[0];
-                  setActiveChatExpert(matched);
+                  setActiveChatBooking(booking);
+                  setActiveChatExpert(null);
                   setActiveTab('chat');
                 }}
               />
-            ) : theme === 'light' ? (
-              /* ADMIN — METRICFLOW LIGHT MODE */
-              <LightModeDashboard
-                onViewAllProducts={() => setActiveTab('products')}
-                onViewSalesReport={() => setActiveTab('analytics')}
-              />
             ) : (
-              /* ADMIN — NEXORA DARK MODE */
-              <div className="dashboard-grid">
-                <div className="metrics-row">
-                  {dashboardMetrics.map((metric) => (
-                    <MetricCard key={metric.id} metric={metric} />
-                  ))}
-                </div>
-
-                <div className="charts-row">
-                  <RevenueChart />
-                  <SalesChannelChart onViewReport={() => setActiveTab('analytics')} />
-                </div>
-
-                <div className="bottom-row">
-                  <TopProductsTable onViewAll={() => setActiveTab('products')} />
-                  <RecentOrdersTable onViewAll={() => setActiveTab('orders')} />
-                  <CustomerGrowthChart />
-                </div>
-              </div>
+              <section style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                <header><h2>Payment Activity</h2><p>Latest records from the payment ledger.</p></header>
+                {adminPaymentSummary.error && <p role="alert" style={{ color: '#ef4444' }}>{adminPaymentSummary.error}</p>}
+                {adminPaymentSummary.loading ? <p role="status">Loading payment activity…</p> : <>
+                  <div className="metrics-row"><div className="metric-card"><div className="metric-title">Recorded payments</div><div className="metric-value">{adminPaymentSummary.total}</div></div></div>
+                  {adminPaymentSummary.records.length === 0 ? <p>No payment transactions are recorded.</p> : <div className="card-container" style={{ overflowX: 'auto' }}><table style={{ width: '100%', minWidth: '620px', textAlign: 'left', borderCollapse: 'collapse' }}><thead><tr>{['Date', 'Client', 'Expert', 'Booking', 'Status'].map((label) => <th key={label}>{label}</th>)}</tr></thead><tbody>{adminPaymentSummary.records.map((payment) => <tr key={payment.id}><td>{payment.createdAt ? new Date(payment.createdAt).toLocaleDateString() : '—'}</td><td>{payment.clientName || '—'}</td><td>{payment.expertName || '—'}</td><td>{payment.bookingNumber || payment.bookingId || '—'}</td><td>{payment.status}</td></tr>)}</tbody></table></div>}
+                  <p style={{ color: 'var(--text-muted)', fontSize: '12px' }}>Showing up to 10 latest records. Open Sales for filters and pagination.</p>
+                </>}
+              </section>
             )
           )}
 
@@ -350,6 +288,8 @@ export default function App() {
               <CustomersView />
             ) : (
               <ExpertGrid 
+                initialSearchQuery={marketplaceQuery}
+                onInitialSearchApplied={() => setMarketplaceQuery('')}
                 onBook={(expert) => handleStartBooking(expert)}
                 onViewProfile={(expert) => setSelectedExpertForProfile(expert)}
                 onOpenAIMatcher={() => setActiveTab('ai-matcher')}
@@ -359,7 +299,7 @@ export default function App() {
 
           {/* VIEW: PRODUCTS & SERVICE PACKAGES */}
           {activeTab === 'products' && (
-            <ProductsView onBookService={() => handleStartBooking(mockExperts[0])} />
+            <ProductsView canBook={userRole === 'client'} onBookService={(service) => handleStartBooking(service.expertId, service)} />
           )}
 
           {/* VIEW: ORDERS & BOOKINGS (CLIENT/EXPERT) / SALES LEDGER (ADMIN) */}
@@ -368,8 +308,8 @@ export default function App() {
               <SalesView />
             ) : (
               <OrdersView onJoinSession={(booking) => {
-                const matched = mockExperts.find(e => e.id === booking.expertId) || mockExperts[0];
-                setActiveChatExpert(matched);
+                setActiveChatBooking(booking);
+                setActiveChatExpert(null);
                 setActiveTab('chat');
               }} />
             )
@@ -381,6 +321,7 @@ export default function App() {
               onBookExpert={(expert) => handleStartBooking(expert)}
               onStartChat={(expert) => {
                 setActiveChatExpert(expert);
+                setActiveChatBooking(null);
                 setActiveTab('chat');
               }}
             />
@@ -388,7 +329,7 @@ export default function App() {
 
           {/* VIEW: CONSULTATION CHAT & VIDEO ROOM / REPORTS */}
           {activeTab === 'chat' && (
-            <ConsultationChat selectedExpert={activeChatExpert} />
+            <ConsultationChat selectedExpert={activeChatExpert} initialBooking={activeChatBooking} currentUser={currentUser} />
           )}
 
           {/* VIEW: STRIPE FINANCIALS / ALERTS */}
@@ -398,7 +339,7 @@ export default function App() {
 
           {/* VIEW: ANALYTICS & REPORTS */}
           {activeTab === 'analytics' && (
-            <AnalyticsView />
+            <SalesView />
           )}
 
           {/* VIEW: SETTINGS & CONFIG */}

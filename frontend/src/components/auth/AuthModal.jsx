@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
   X, Mail, Lock, User, Eye, EyeOff, ArrowRight, Shield,
-  Sparkles, Briefcase, UserCheck, Settings
+  Sparkles, Briefcase, UserCheck
 } from 'lucide-react';
 import authAPI from '../../api/auth.js';
 
@@ -78,22 +78,12 @@ export default function AuthModal({ isOpen, onClose, onAuthenticate, initialMode
     try {
       if (mode === 'login') {
         // Call real login API
-        console.log('[AuthModal] Starting login with:', { email: formData.email });
         const result = await authAPI.login(formData.email, formData.password);
-        console.log('[AuthModal] Login success, received:', { 
-          user: result.user, 
-          hasAccessToken: !!result.accessToken,
-          hasRefreshToken: !!result.refreshToken 
-        });
         
         // Store tokens
         localStorage.setItem('accessToken', result.accessToken);
-        localStorage.setItem('refreshToken', result.refreshToken);
-        localStorage.setItem('user', JSON.stringify(result.user));
-        console.log('[AuthModal] Tokens stored in localStorage');
 
         // Call parent callback
-        console.log('[AuthModal] Calling onAuthenticate callback');
         onAuthenticate({
           name: result.user.firstName || result.user.email.split('@')[0],
           email: result.user.email,
@@ -112,8 +102,6 @@ export default function AuthModal({ isOpen, onClose, onAuthenticate, initialMode
 
         // Store tokens
         localStorage.setItem('accessToken', result.accessToken);
-        localStorage.setItem('refreshToken', result.refreshToken);
-        localStorage.setItem('user', JSON.stringify(result.user));
 
         // Call parent callback
         onAuthenticate({
@@ -127,26 +115,13 @@ export default function AuthModal({ isOpen, onClose, onAuthenticate, initialMode
       setIsLoading(false);
     } catch (error) {
       setIsLoading(false);
-      const message = error.response?.data?.message || error.message || 'An error occurred';
-      setApiError(message);
-      console.error('Auth error:', error);
+      setApiError(error.response?.data?.message || 'Unable to authenticate. Please try again.');
     }
   };
 
   const handleSocialAuth = (provider) => {
-    setIsLoading(true);
     setApiError('');
-    // Social auth not yet implemented - keep as mock
-    setTimeout(() => {
-      onAuthenticate({
-        name: provider === 'google' ? 'Alex Morgan' : 'dev_user',
-        email: provider === 'google' ? 'alex@example.com' : 'dev@github.io',
-        role: selectedRole,
-        mode: 'login',
-        provider
-      });
-      setIsLoading(false);
-    }, 1000);
+    setApiError(`${provider === 'google' ? 'Google' : 'GitHub'} sign-in is not configured. Use your email and password.`);
   };
 
   const roles = [
@@ -195,7 +170,7 @@ export default function AuthModal({ isOpen, onClose, onAuthenticate, initialMode
               </div>
               <div className="auth-stat">
                 <UserCheck size={18} color="#3b82f6" />
-                <span>2,400+ Verified Experts</span>
+                <span>Client and expert accounts</span>
               </div>
             </div>
           </div>
@@ -218,7 +193,7 @@ export default function AuthModal({ isOpen, onClose, onAuthenticate, initialMode
 
           {/* Social Logins */}
           <div className="auth-social-row">
-            <button className="auth-social-btn" onClick={() => handleSocialAuth('google')}>
+              <button type="button" className="auth-social-btn" onClick={() => handleSocialAuth('google')}>
               <svg width="18" height="18" viewBox="0 0 24 24">
                 <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
                 <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
@@ -227,7 +202,7 @@ export default function AuthModal({ isOpen, onClose, onAuthenticate, initialMode
               </svg>
               Google
             </button>
-            <button className="auth-social-btn" onClick={() => handleSocialAuth('github')}>
+            <button type="button" className="auth-social-btn" onClick={() => handleSocialAuth('github')}>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
                 <path fillRule="evenodd" clipRule="evenodd" d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/>
               </svg>
@@ -347,7 +322,7 @@ export default function AuthModal({ isOpen, onClose, onAuthenticate, initialMode
                   <input id="auth-remember" name="rememberMe" type="checkbox" defaultChecked />
                   <span>Remember me</span>
                 </label>
-                <button type="button" className="auth-forgot-btn">Forgot password?</button>
+                <button type="button" className="auth-forgot-btn" onClick={() => setApiError('Password recovery email is not configured. Contact support for help.')}>Forgot password?</button>
               </div>
             )}
 

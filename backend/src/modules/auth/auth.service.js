@@ -20,6 +20,7 @@ class AuthService {
       email: user.email,
       role: user.role,
       type: 'access',
+      ver: user.tokenVersion || 0,
     };
     
     return jwt.sign(payload, config.jwt.secret, {
@@ -34,6 +35,7 @@ class AuthService {
     const payload = {
       sub: user._id.toString(),
       type: 'refresh',
+      ver: user.tokenVersion || 0,
     };
     
     return jwt.sign(payload, config.jwt.refreshSecret, {
@@ -193,9 +195,9 @@ class AuthService {
       const decoded = this.verifyToken(refreshToken, 'refresh');
       
       // Find user
-      const user = await User.findById(decoded.sub);
+      const user = await User.findById(decoded.sub).select('+tokenVersion');
       
-      if (!user || user.status !== 'active') {
+      if (!user || user.status !== 'active' || (decoded.ver ?? 0) !== (user.tokenVersion ?? 0)) {
         throw new Error('Invalid refresh token');
       }
       
@@ -209,6 +211,10 @@ class AuthService {
       logger.error('Token refresh failed', { error: error.message });
       throw error;
     }
+  }
+
+  async revokeSessions(userId) {
+    await User.updateOne({ _id: userId }, { $inc: { tokenVersion: 1 } });
   }
   
   /**
@@ -282,13 +288,14 @@ class AuthService {
       const user = await User.findOne({
         resetPasswordToken: hashedToken,
         resetPasswordExpires: { $gt: Date.now() },
-      }).select('+resetPasswordToken +resetPasswordExpires');
+      }).select('+resetPasswordToken +resetPasswordExpires +tokenVersion');
       
       if (!user) {
         throw new Error('Invalid or expired reset token');
       }
       
       user.password = newPassword;
+      user.tokenVersion += 1;
       user.resetPasswordToken = undefined;
       user.resetPasswordExpires = undefined;
       await user.save();
@@ -307,7 +314,7 @@ class AuthService {
    */
   async changePassword(userId, currentPassword, newPassword) {
     try {
-      const user = await User.findById(userId).select('+password');
+      const user = await User.findById(userId).select('+password +tokenVersion');
       
       if (!user) {
         throw new Error('User not found');
@@ -321,6 +328,7 @@ class AuthService {
       }
       
       user.password = newPassword;
+      user.tokenVersion += 1;
       await user.save();
       
       logger.info('Password changed', { userId: user._id });

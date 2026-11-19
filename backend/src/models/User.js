@@ -55,6 +55,13 @@ const userSchema = new mongoose.Schema({
     required: true,
     index: true,
   },
+
+  // Invalidates access and refresh tokens after logout or credential changes.
+  tokenVersion: {
+    type: Number,
+    default: 0,
+    select: false,
+  },
   
 
   
@@ -186,6 +193,7 @@ const userSchema = new mongoose.Schema({
     virtuals: true,
     transform: function(doc, ret) {
       delete ret.password;
+      delete ret.tokenVersion;
       delete ret.__v;
       return ret;
     },
@@ -266,7 +274,7 @@ userSchema.methods.resetLoginAttempts = function() {
 
 // Static method to find by email (including password)
 userSchema.statics.findByEmail = function(email) {
-  return this.findOne({ email: email.toLowerCase() }).select('+password');
+  return this.findOne({ email: email.toLowerCase() }).select('+password +tokenVersion');
 };
 
 // Static method to find active users

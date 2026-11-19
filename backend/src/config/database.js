@@ -67,10 +67,7 @@ const connectDB = async () => {
 
   } catch (error) {
     logger.error('❌ MongoDB connection failed:', error);
-    
-    // Retry connection after delay
-    logger.info('Retrying connection in 5 seconds...');
-    setTimeout(connectDB, 5000);
+    throw error;
   }
 };
 
